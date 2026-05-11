@@ -94,6 +94,36 @@ uv run python -B src/BasicMQWDesign.py \
   --al-barrier 0.30
 ```
 
+
+## 臨界膜圧(膜応力)の計算スクリプト
+
+別ファイルとして `src/CriticalFilmStress.py` を用意しています。
+InP 基板上の単層について、次を算出します。
+
+- 面内ひずみ `eps=(a_sub-a_layer)/a_layer`
+- 二軸弾性近似の膜応力 [GPa]
+- Matthews-Blakeslee の簡易臨界膜厚 [nm]
+
+実行例 (InGaAsP):
+
+```bash
+uv run python -B src/CriticalFilmStress.py \
+  --family ingaasp \
+  --strain -0.006 \
+  --as-frac 0.567 \
+  --thickness-nm 7.0 \
+  --json out/critical_film_stress.json
+```
+
+実行例 (AlGaInAs):
+
+```bash
+uv run python -B src/CriticalFilmStress.py \
+  --family algainas \
+  --strain -0.007 \
+  --al-frac 0.14
+```
+
 ## 主な引数
 
 | 引数 | 意味 | 既定値 |
