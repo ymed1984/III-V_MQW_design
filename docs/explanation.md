@@ -1,7 +1,8 @@
-# MQWDesign.py で実施している物理計算の詳細
+# BasicMQWDesign.py / MQWGainDesign.py で実施している物理計算の詳細
 
-この文書は、`src/MQWDesign.py` が InP 基板上の InGaAsP または AlGaInAs 多重量子井戸
+この文書は、`src/BasicMQWDesign.py` が InP 基板上の InGaAsP または AlGaInAs 多重量子井戸
 （MQW: multiple quantum well）活性層を一次設計するために、物理的に何を計算しているかを説明する。
+また、`src/MQWGainDesign.py` で追加された簡易 k.p 材料ゲイン計算の扱いも説明する。
 実行方法やコマンドライン引数の説明は README に分離し、ここでは計算内容、仮定、近似、出力値の物理的意味に集中する。
 
 本プログラムは、O-band、特に 1.31 um 近傍の InP 系 SOA 活性層を想定した簡易設計ツールである。
@@ -16,6 +17,32 @@
 - e1-hh1 および e1-lh1 遷移エネルギーと遷移波長
 - MQW 全体の平均ひずみ、ひずみ厚み積、簡易臨界膜厚
 - Lumerical 用 MQW 入力スクリプトに必要な層厚、材料、ひずみ情報
+- 簡易 k.p サブバンド分散と TE/TM 材料ゲインスペクトル
+
+## 0. k.p ゲイン計算の位置づけ
+
+`MQWGainDesign.py` は、一次設計で得た井戸層・障壁層・ひずみ・バンド端を z 方向グリッドへ展開し、材料ゲインの初期スクリーニングを行う。
+初期実装では、伝導帯はスカラー有効質量 Hamiltonian、価電子帯は軸近似 4x4 Luttinger-Kohn Hamiltonian の 1 つの HH/LH Kramers ブロックを 2x2 有限差分行列として扱う。
+
+この実装で含めているものは次である。
+
+- z 方向の有限差分閉じ込め
+- 面内波数 `k_t` sweep
+- HH/LH の面内 k 依存混合
+- ひずみによる HH/LH バンド端分裂
+- キャリア密度からの電子・正孔擬フェルミ準位の数値解
+- Lorentzian または Gaussian 線幅による TE/TM ゲインスペクトル
+
+一方、次はまだ簡略化している。
+
+- 6x6 / 8x8 k.p の split-off band / conduction-valence coupling
+- 自己無撞着 Poisson-Schrödinger
+- nonparabolicity
+- 絶対運動量行列要素の材料依存校正
+- 実測 PL / gain / absorption に基づく絶対ゲイン校正
+
+したがって、`MQWGainDesign.py` の絶対ゲイン値は `--gain-scale-cm` で校正する前提のスクリーニング値である。
+ピーク波長、TE/TM の相対傾向、井戸幅・ひずみ・キャリア密度 sweep の比較を主目的に使う。
 
 ## 1. 全体の計算フロー
 

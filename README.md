@@ -124,6 +124,98 @@ uv run python -B src/CriticalFilmStress.py \
   --al-frac 0.14
 ```
 
+## 簡易 k.p 材料ゲイン計算
+
+`src/MQWGainDesign.py` では、既存の MQW 一次設計結果を使って簡易 k.p 材料ゲインを計算できます。
+初期実装はスクリーニング用途のモデルで、伝導帯はスカラー有効質量、価電子帯は軸近似 4x4 Luttinger-Kohn の 1 つの HH/LH Kramers ブロックを 2x2 有限差分 Hamiltonian として解きます。
+絶対ゲイン値は `--gain-scale-cm`、線幅、バンドオフセット、材料パラメータの校正に依存します。
+
+```bash
+uv run python -B src/MQWGainDesign.py \
+  --family ingaasp \
+  --carrier-density-cm3 2e18 \
+  --temperature 300 \
+  --out-json out/gain_result.json \
+  --out-csv out/gain_spectrum.csv \
+  --plot out/gain_spectrum.png
+```
+
+主な追加引数:
+
+| 引数 | 意味 | 既定値 |
+| --- | --- | --- |
+| `--carrier-density-cm3` | 活性井戸体積でのキャリア密度 [cm^-3] | `2e18` |
+| `--temperature` | 温度 [K] | `300` |
+| `--dz-nm` | z 方向差分グリッド [nm] | `0.10` |
+| `--kt-max-nm` | 面内波数 sweep 上限 [nm^-1] | `0.35` |
+| `--kt-points` | 面内波数点数 | `31` |
+| `--broadening-eV` | スペクトル線幅 FWHM [eV] | `0.030` |
+| `--line-shape` | `lorentzian` または `gaussian` | `lorentzian` |
+| `--gain-scale-cm` | 絶対ゲイン校正用スケール | `2400` |
+
+出力 CSV には `energy_eV`, `wavelength_nm`, `gain_TE_cm-1`, `gain_TM_cm-1` が保存されます。
+
+### ゲインピークの sweep グラフ
+
+`src/MQWGainSweep.py` では、キャリア密度、井戸幅、ひずみ、`qc`、線幅を振ったときの TE/TM ピーク波長とピークゲインをまとめて出力できます。
+既存のピーク推移グラフに加えて、各 sweep 点のゲインスペクトルを「横軸 波長、縦軸 ゲイン」で重ね描きした PNG も出力します。
+
+キャリア密度依存性:
+
+```bash
+uv run python -B src/MQWGainSweep.py \
+  --sweep carrier-density \
+  --start 1e18 \
+  --stop 3e18 \
+  --points 7 \
+  --out-json out/gain_sweep_density.json \
+  --out-csv out/gain_sweep_density.csv \
+  --plot out/gain_sweep_density_peak.png \
+  --spectra-csv out/gain_sweep_density_spectra.csv \
+  --spectra-plot out/gain_sweep_density_spectra.png
+```
+
+井戸幅依存性:
+
+```bash
+uv run python -B src/MQWGainSweep.py \
+  --sweep well-nm \
+  --values 6.0,6.5,7.0,7.5,8.0 \
+  --out-json out/gain_sweep_well.json \
+  --out-csv out/gain_sweep_well.csv \
+  --plot out/gain_sweep_well_peak.png \
+  --spectra-csv out/gain_sweep_well_spectra.csv \
+  --spectra-plot out/gain_sweep_well_spectra.png
+```
+
+井戸歪み依存性:
+
+```bash
+uv run python -B src/MQWGainSweep.py \
+  --sweep well-strain \
+  --values=-0.004,-0.006,-0.008 \
+  --out-json out/gain_sweep_strain.json \
+  --out-csv out/gain_sweep_strain.csv \
+  --plot out/gain_sweep_strain_peak.png \
+  --spectra-csv out/gain_sweep_strain_spectra.csv \
+  --spectra-plot out/gain_sweep_strain_spectra.png
+```
+
+対応している sweep 対象:
+
+```text
+carrier-density
+well-nm
+well-strain
+barrier-strain
+qc
+broadening-eV
+```
+
+`--plot` の PNG は上下 2 段のグラフで、上段にピーク波長、下段にピーク材料ゲインを TE/TM 別に表示します。
+`--spectra-plot` の PNG は上下 2 段で、TE/TM それぞれのゲインスペクトルを sweep 値ごとに重ね描きします。
+歪みのように負の値を `--values` で渡す場合は、`--values=-0.004,-0.006,-0.008` のように `=` 付きで指定してください。
+
 ## 主な引数
 
 | 引数 | 意味 | 既定値 |
