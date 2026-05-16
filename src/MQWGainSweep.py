@@ -13,8 +13,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from BasicMQWDesign import design_default
+from calibration import (
+    ResolvedCalibration,
+    calibration_summary,
+    load_calibration,
+    resolve_calibration,
+)
 from gain import calculate_gain_spectrum, spectrum_to_rows
 from kp_solver import solve_kp_subbands
+from visualization import plot_sweep_summary
 
 SweepName = str
 
@@ -75,6 +82,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--log", action="store_true", help="Use logarithmic sweep spacing")
 
+    ap.add_argument("--calibration", type=Path, default=None)
     ap.add_argument("--family", choices=["algainas", "ingaasp"], default="ingaasp")
     ap.add_argument("--wells", type=int, default=5)
     ap.add_argument("--well-nm", type=float, default=7.0)
@@ -86,6 +94,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--al-barrier", type=float, default=None)
     ap.add_argument("--as-well", type=float, default=None)
     ap.add_argument("--as-barrier", type=float, default=None)
+    ap.add_argument("--eg-offset-well-eV", type=float, default=None)
+    ap.add_argument("--eg-offset-barrier-eV", type=float, default=None)
 
     ap.add_argument("--carrier-density-cm3", type=float, default=2.0e18)
     ap.add_argument("--temperature", type=float, default=300.0)
@@ -97,9 +107,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--energy-min-eV", type=float, default=None)
     ap.add_argument("--energy-max-eV", type=float, default=None)
     ap.add_argument("--energy-points", type=int, default=320)
-    ap.add_argument("--broadening-eV", type=float, default=0.030)
-    ap.add_argument("--line-shape", choices=["lorentzian", "gaussian"], default="lorentzian")
-    ap.add_argument("--gain-scale-cm", type=float, default=2400.0)
+    ap.add_argument("--broadening-eV", type=float, default=None)
+    ap.add_argument("--line-shape", choices=["lorentzian", "gaussian"], default=None)
+    ap.add_argument("--gain-scale-cm", type=float, default=None)
 
     ap.add_argument("--out-json", type=Path, default=Path("out/gain_sweep.json"))
     ap.add_argument("--out-csv", type=Path, default=Path("out/gain_sweep.csv"))
@@ -119,19 +129,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def _design_kwargs(args: argparse.Namespace, sweep: SweepName, value: float) -> dict[str, Any]:
+def _design_kwargs(
+    args: argparse.Namespace,
+    resolved: ResolvedCalibration,
+    sweep: SweepName,
+    value: float,
+) -> dict[str, Any]:
     kwargs = {
         "family": args.family,
         "wells": args.wells,
         "well_nm": args.well_nm,
         "barrier_nm": args.barrier_nm,
-        "q_c": args.qc,
+        "q_c": resolved.q_c,
         "well_strain": args.well_strain,
         "barrier_strain": args.barrier_strain,
         "al_well": args.al_well,
         "al_barrier": args.al_barrier,
         "as_well": args.as_well,
         "as_barrier": args.as_barrier,
+        "eg_offset_well_eV": resolved.Eg_offset_well_eV,
+        "eg_offset_barrier_eV": resolved.Eg_offset_barrier_eV,
     }
     if sweep == "well-nm":
         kwargs["well_nm"] = value
@@ -144,16 +161,21 @@ def _design_kwargs(args: argparse.Namespace, sweep: SweepName, value: float) -> 
     return kwargs
 
 
-def _gain_kwargs(args: argparse.Namespace, sweep: SweepName, value: float) -> dict[str, Any]:
+def _gain_kwargs(
+    args: argparse.Namespace,
+    resolved: ResolvedCalibration,
+    sweep: SweepName,
+    value: float,
+) -> dict[str, Any]:
     kwargs = {
         "carrier_density_cm3": args.carrier_density_cm3,
         "temperature_K": args.temperature,
         "energy_min_eV": args.energy_min_eV,
         "energy_max_eV": args.energy_max_eV,
         "energy_points": args.energy_points,
-        "broadening_eV": args.broadening_eV,
-        "line_shape": args.line_shape,
-        "gain_scale_cm": args.gain_scale_cm,
+        "broadening_eV": resolved.broadening_eV,
+        "line_shape": resolved.line_shape,
+        "gain_scale_cm": resolved.gain_scale_cm,
     }
     if sweep == "carrier-density":
         kwargs["carrier_density_cm3"] = value
@@ -163,9 +185,12 @@ def _gain_kwargs(args: argparse.Namespace, sweep: SweepName, value: float) -> di
 
 
 def run_one(
-    args: argparse.Namespace, sweep: SweepName, value: float
+    args: argparse.Namespace,
+    resolved: ResolvedCalibration,
+    sweep: SweepName,
+    value: float,
 ) -> tuple[dict[str, float], list[dict[str, float]]]:
-    design = design_default(**_design_kwargs(args, sweep, value))
+    design = design_default(**_design_kwargs(args, resolved, sweep, value))
     profile, subbands = solve_kp_subbands(
         design,
         dz_nm=args.dz_nm,
@@ -177,17 +202,21 @@ def run_one(
     spectrum, terms = calculate_gain_spectrum(
         profile,
         subbands,
-        **_gain_kwargs(args, sweep, value),
+        **_gain_kwargs(args, resolved, sweep, value),
     )
+    gain_kwargs = _gain_kwargs(args, resolved, sweep, value)
     summary = {
         "sweep_value": value,
-        "carrier_density_cm3": float(_gain_kwargs(args, sweep, value)["carrier_density_cm3"]),
+        "carrier_density_cm3": float(gain_kwargs["carrier_density_cm3"]),
         "well_nm": float(design["well_nm"]),
         "barrier_nm": float(design["barrier_nm"]),
         "qc": float(design["qc"]),
+        "Eg_offset_well_eV": float(design["Eg_offset_well_eV"]),
+        "Eg_offset_barrier_eV": float(design["Eg_offset_barrier_eV"]),
         "well_strain": float(design["transition"]["well_strain"]["eps_parallel"]),
         "barrier_strain": float(design["transition"]["barrier_strain"]["eps_parallel"]),
-        "broadening_eV": float(_gain_kwargs(args, sweep, value)["broadening_eV"]),
+        "broadening_eV": float(gain_kwargs["broadening_eV"]),
+        "gain_scale_cm": float(gain_kwargs["gain_scale_cm"]),
         "peak_TE_gain_cm-1": spectrum.peak_te_gain_cm,
         "peak_TE_wavelength_nm": spectrum.peak_te_wavelength_nm,
         "peak_TM_gain_cm-1": spectrum.peak_tm_gain_cm,
@@ -205,10 +234,19 @@ def run_one(
                 "well_nm": summary["well_nm"],
                 "well_strain": summary["well_strain"],
                 "qc": summary["qc"],
+                "broadening_eV": summary["broadening_eV"],
                 **row,
             }
         )
     return summary, spectra_rows
+
+
+def _sweep_calibration_field(sweep: SweepName) -> str | None:
+    fields = {
+        "qc": "qc",
+        "broadening-eV": "broadening_eV",
+    }
+    return fields.get(sweep)
 
 
 def write_csv(rows: list[dict[str, float]], path: Path) -> Path:
@@ -225,40 +263,7 @@ def write_spectra_csv(rows: list[dict[str, float]], path: Path) -> Path:
 
 
 def write_plot(rows: list[dict[str, float]], sweep: SweepName, path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    x = np.array([row["sweep_value"] for row in rows], dtype=float)
-    te_wavelength = np.array([row["peak_TE_wavelength_nm"] for row in rows], dtype=float)
-    tm_wavelength = np.array([row["peak_TM_wavelength_nm"] for row in rows], dtype=float)
-    te_gain = np.array([row["peak_TE_gain_cm-1"] for row in rows], dtype=float)
-    tm_gain = np.array([row["peak_TM_gain_cm-1"] for row in rows], dtype=float)
-    order = np.argsort(x)
-
-    fig, (ax_wave, ax_gain) = plt.subplots(
-        2,
-        1,
-        figsize=(7.0, 6.4),
-        sharex=True,
-        constrained_layout=True,
-    )
-    ax_wave.plot(x[order], te_wavelength[order], marker="o", label="TE peak")
-    ax_wave.plot(x[order], tm_wavelength[order], marker="s", label="TM peak")
-    ax_wave.set_ylabel("Peak wavelength [nm]")
-    ax_wave.grid(True, alpha=0.25)
-    ax_wave.legend()
-
-    ax_gain.plot(x[order], te_gain[order], marker="o", label="TE peak")
-    ax_gain.plot(x[order], tm_gain[order], marker="s", label="TM peak")
-    ax_gain.axhline(0.0, color="0.35", linewidth=0.8)
-    ax_gain.set_xlabel(_axis_label(sweep))
-    ax_gain.set_ylabel("Peak material gain [cm$^{-1}$]")
-    ax_gain.grid(True, alpha=0.25)
-    ax_gain.legend()
-
-    if sweep == "carrier-density":
-        ax_gain.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
-    fig.savefig(path, dpi=180)
-    plt.close(fig)
-    return path
+    return plot_sweep_summary(rows, _axis_label(sweep), path)
 
 
 def write_spectra_plot(
@@ -358,20 +363,45 @@ def format_summary(
 
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    calibration = load_calibration(args.calibration)
+    resolved_calibration = resolve_calibration(args, calibration)
     values = _parse_values(args)
     rows = []
     spectra_rows = []
     for value in values:
-        summary, spectrum_rows = run_one(args, args.sweep, value)
+        summary, spectrum_rows = run_one(args, resolved_calibration, args.sweep, value)
         rows.append(summary)
         spectra_rows.extend(spectrum_rows)
+    base_design = design_default(
+        family=args.family,
+        wells=args.wells,
+        well_nm=args.well_nm,
+        barrier_nm=args.barrier_nm,
+        q_c=resolved_calibration.q_c,
+        well_strain=args.well_strain,
+        barrier_strain=args.barrier_strain,
+        al_well=args.al_well,
+        al_barrier=args.al_barrier,
+        as_well=args.as_well,
+        as_barrier=args.as_barrier,
+        eg_offset_well_eV=resolved_calibration.Eg_offset_well_eV,
+        eg_offset_barrier_eV=resolved_calibration.Eg_offset_barrier_eV,
+    )
     result = {
         "model_note": (
             "Peak sweep from compact screening model. Absolute gain requires "
             "calibration of offsets, broadening, and gain_scale_cm."
         ),
-        "sweep": args.sweep,
-        "values": values,
+        "calibration": calibration_summary(
+            calibration,
+            resolved_calibration,
+            applied_qc=float(base_design["qc"]),
+        ),
+        "sweep": {
+            "name": args.sweep,
+            "values": values,
+            "overrides_calibration_field": _sweep_calibration_field(args.sweep),
+        },
         "rows": rows,
         "spectra_csv": str(args.spectra_csv),
     }

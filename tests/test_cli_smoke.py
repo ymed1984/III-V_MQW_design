@@ -62,6 +62,9 @@ def test_gain_cli_writes_outputs(tmp_path: Path) -> None:
     json_path = tmp_path / "gain.json"
     csv_path = tmp_path / "gain.csv"
     png_path = tmp_path / "gain.png"
+    band_path = tmp_path / "band.png"
+    wavefunction_path = tmp_path / "wavefunctions.png"
+    dispersion_path = tmp_path / "dispersion.png"
 
     _run_script(
         "MQWGainDesign.py",
@@ -81,6 +84,12 @@ def test_gain_cli_writes_outputs(tmp_path: Path) -> None:
         str(csv_path),
         "--plot",
         str(png_path),
+        "--band-plot",
+        str(band_path),
+        "--wavefunction-plot",
+        str(wavefunction_path),
+        "--dispersion-plot",
+        str(dispersion_path),
     )
 
     data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -90,3 +99,97 @@ def test_gain_cli_writes_outputs(tmp_path: Path) -> None:
         rows = list(csv.DictReader(handle))
     assert len(rows) == 60
     assert png_path.stat().st_size > 0
+    assert band_path.stat().st_size > 0
+    assert wavefunction_path.stat().st_size > 0
+    assert dispersion_path.stat().st_size > 0
+
+
+def test_gain_sweep_cli_accepts_calibration(tmp_path: Path) -> None:
+    json_path = tmp_path / "sweep.json"
+    csv_path = tmp_path / "sweep.csv"
+    plot_path = tmp_path / "sweep.png"
+    spectra_csv_path = tmp_path / "spectra.csv"
+    spectra_plot_path = tmp_path / "spectra.png"
+
+    _run_script(
+        "MQWGainSweep.py",
+        "--calibration",
+        str(REPO_ROOT / "calibrations" / "ingaasp_oband_example.json"),
+        "--sweep",
+        "qc",
+        "--values",
+        "0.35,0.40",
+        "--dz-nm",
+        "0.2",
+        "--kt-points",
+        "3",
+        "--energy-points",
+        "40",
+        "--electron-states",
+        "1",
+        "--hole-states",
+        "1",
+        "--out-json",
+        str(json_path),
+        "--out-csv",
+        str(csv_path),
+        "--plot",
+        str(plot_path),
+        "--spectra-csv",
+        str(spectra_csv_path),
+        "--spectra-plot",
+        str(spectra_plot_path),
+    )
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["calibration"]["name"] == "ingaasp_oband_example"
+    assert data["sweep"]["name"] == "qc"
+    assert data["sweep"]["overrides_calibration_field"] == "qc"
+    assert [row["qc"] for row in data["rows"]] == [0.35, 0.4]
+    assert csv_path.stat().st_size > 0
+    assert plot_path.stat().st_size > 0
+    assert spectra_csv_path.stat().st_size > 0
+    assert spectra_plot_path.stat().st_size > 0
+
+
+def test_gain_sweep_broadening_overrides_calibration(tmp_path: Path) -> None:
+    json_path = tmp_path / "sweep.json"
+    csv_path = tmp_path / "sweep.csv"
+    plot_path = tmp_path / "sweep.png"
+    spectra_csv_path = tmp_path / "spectra.csv"
+    spectra_plot_path = tmp_path / "spectra.png"
+
+    _run_script(
+        "MQWGainSweep.py",
+        "--calibration",
+        str(REPO_ROOT / "calibrations" / "ingaasp_oband_example.json"),
+        "--sweep",
+        "broadening-eV",
+        "--values",
+        "0.02,0.04",
+        "--dz-nm",
+        "0.2",
+        "--kt-points",
+        "3",
+        "--energy-points",
+        "40",
+        "--electron-states",
+        "1",
+        "--hole-states",
+        "1",
+        "--out-json",
+        str(json_path),
+        "--out-csv",
+        str(csv_path),
+        "--plot",
+        str(plot_path),
+        "--spectra-csv",
+        str(spectra_csv_path),
+        "--spectra-plot",
+        str(spectra_plot_path),
+    )
+
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["sweep"]["name"] == "broadening-eV"
+    assert data["sweep"]["overrides_calibration_field"] == "broadening_eV"
+    assert [row["broadening_eV"] for row in data["rows"]] == [0.02, 0.04]

@@ -9,13 +9,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 from BasicMQWDesign import design_default
 from calibration import calibration_summary, load_calibration, resolve_calibration
 from gain import calculate_gain_spectrum, gain_summary_dict, spectrum_to_rows
 from kp_solver import solve_kp_subbands, subband_summary
+from visualization import (
+    plot_band_diagram,
+    plot_gain_spectrum,
+    plot_subband_dispersion,
+    plot_wavefunctions,
+)
 
 
 def _json_safe(value: Any) -> Any:
@@ -73,6 +78,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--out-json", type=Path, default=Path("out/gain_result.json"))
     ap.add_argument("--out-csv", type=Path, default=Path("out/gain_spectrum.csv"))
     ap.add_argument("--plot", type=Path, default=Path("out/gain_spectrum.png"))
+    ap.add_argument("--band-plot", type=Path, default=None)
+    ap.add_argument("--wavefunction-plot", type=Path, default=None)
+    ap.add_argument("--dispersion-plot", type=Path, default=None)
     return ap
 
 
@@ -86,23 +94,7 @@ def write_csv(rows: list[dict[str, float]], path: Path) -> Path:
 
 
 def write_plot(rows: list[dict[str, float]], path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    wavelength = np.array([row["wavelength_nm"] for row in rows])
-    gain_te = np.array([row["gain_TE_cm-1"] for row in rows])
-    gain_tm = np.array([row["gain_TM_cm-1"] for row in rows])
-    order = np.argsort(wavelength)
-
-    fig, ax = plt.subplots(figsize=(7.0, 4.2), constrained_layout=True)
-    ax.plot(wavelength[order], gain_te[order], label="TE")
-    ax.plot(wavelength[order], gain_tm[order], label="TM")
-    ax.axhline(0.0, color="0.35", linewidth=0.8)
-    ax.set_xlabel("Wavelength [nm]")
-    ax.set_ylabel("Material gain [cm$^{-1}$]")
-    ax.legend()
-    ax.grid(True, alpha=0.25)
-    fig.savefig(path, dpi=180)
-    plt.close(fig)
-    return path
+    return plot_gain_spectrum(rows, path)
 
 
 def format_summary(result: dict[str, Any], json_path: Path, csv_path: Path, plot_path: Path) -> str:
@@ -194,6 +186,12 @@ def main(argv: list[str] | None = None) -> None:
     )
     write_csv(rows, args.out_csv)
     write_plot(rows, args.plot)
+    if args.band_plot is not None:
+        plot_band_diagram(profile, subbands, args.band_plot)
+    if args.wavefunction_plot is not None:
+        plot_wavefunctions(profile, subbands, args.wavefunction_plot)
+    if args.dispersion_plot is not None:
+        plot_subband_dispersion(subbands, args.dispersion_plot)
     print(format_summary(result, args.out_json, args.out_csv, args.plot))
 
 

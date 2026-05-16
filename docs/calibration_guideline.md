@@ -208,6 +208,7 @@ uv run python -B src/MQWGainDesign.py --broadening-eV 0.050
 
 ```bash
 uv run python -B src/MQWGainSweep.py \
+  --calibration calibrations/ingaasp_oband_example.json \
   --sweep carrier-density \
   --values 1e18,1.5e18,2e18,3e18 \
   --out-json out/gain_sweep_density.json \
@@ -364,6 +365,23 @@ uv run python -B src/MQWGainDesign.py \
 
 この場合、`gain_scale_cm` は校正ファイル中の値ではなく `3000` が使われる。
 適用された値と CLI override の有無は、出力 JSON の `calibration` に保存される。
+
+`MQWGainSweep.py` でも同じ校正ファイルを使用できる。
+
+```bash
+uv run python -B src/MQWGainSweep.py \
+  --calibration calibrations/ingaasp_oband_example.json \
+  --sweep qc \
+  --values 0.35,0.40,0.45 \
+  --out-json out/gain_sweep_qc.json \
+  --out-csv out/gain_sweep_qc.csv \
+  --plot out/gain_sweep_qc_peak.png \
+  --spectra-csv out/gain_sweep_qc_spectra.csv \
+  --spectra-plot out/gain_sweep_qc_spectra.png
+```
+
+`--sweep qc` と `--sweep broadening-eV` では、sweep 値が校正ファイルや CLI の固定値より優先される。
+sweep JSON には、校正ファイル由来の base 設定と、sweep 対象がどの校正フィールドを上書きしているかが保存される。
 
 必要になった場合だけ追加する候補:
 
