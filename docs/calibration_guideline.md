@@ -269,6 +269,29 @@ uv run python -B src/FitCalibration.py \
 生成された JSON には `reference` と `fit_result` が保存される。
 ただし、これは単一点ターゲットに対する簡易 fit であり、複数の carrier density、井戸幅、または Lumerical / 実測スペクトル全体で再確認してから使う。
 
+### Step 9: スペクトル全体で比較する
+
+校正 JSON を適用した後は、`CompareSpectrum.py` で基準スペクトルとの残差を確認する。
+基準 CSV は `energy_eV`、`wavelength_nm`、`gain_TE_cm-1`、`gain_TM_cm-1` の列を持つ形式にそろえる。
+
+```bash
+uv run python -B src/CompareSpectrum.py \
+  --predicted out/gain_spectrum.csv \
+  --reference data/reference_gain.csv \
+  --polarization both \
+  --out-json out/spectrum_comparison.json \
+  --out-plot out/spectrum_comparison.png
+```
+
+確認項目:
+
+- TE/TM peak wavelength の差
+- TE/TM peak gain の差
+- FWHM の差
+- `rmse_gain_cm`
+
+peak だけが合っていても RMSE が大きい場合は、線幅、キャリア密度、TE/TM 定義、基準データの材料ゲイン換算を再確認する。
+
 ## 3. 基準データ別の使い方
 
 ### 3.1 Lumerical MQW

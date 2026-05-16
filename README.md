@@ -28,6 +28,7 @@ O-band、特に 1.31 um 近傍の SOA 活性層を想定し、組成、ひずみ
 | `src/MQWGainDesign.py` | 簡易 k.p サブバンドと TE/TM 材料ゲインスペクトルの単発計算 |
 | `src/MQWGainSweep.py` | キャリア密度、井戸幅、ひずみ、`qc`、線幅などの sweep |
 | `src/FitCalibration.py` | 目標ピーク波長、ピークゲイン、FWHM から校正 JSON を生成 |
+| `src/CompareSpectrum.py` | 計算スペクトルと外部基準スペクトルの peak / FWHM / RMSE 比較 |
 | `src/calibration.py` | 校正 JSON の読み込み、検証、CLI override 解決 |
 | `src/metrics.py` | peak、FWHM、補間 gain、RMSE などのスペクトル指標 |
 | `src/visualization.py` | ゲイン、バンド図、波動関数、サブバンド分散、sweep summary の描画 |
@@ -296,6 +297,23 @@ uv run python -B src/FitCalibration.py \
 
 生成された校正 JSON は `MQWGainDesign.py --calibration` や `MQWGainSweep.py --calibration` に渡せます。
 これは単一点ターゲットへの簡易フィットなので、Lumerical や実測スペクトルで妥当性を確認してから使用してください。
+
+### 外部スペクトルとの比較
+
+`src/CompareSpectrum.py` では、`MQWGainDesign.py` の CSV と Lumerical / 実測などの基準 CSV を重ね、peak、FWHM、ゲイン RMSE を比較できます。
+基準 CSV は `energy_eV`、`wavelength_nm`、`gain_TE_cm-1`、`gain_TM_cm-1` の列を持つ形式にそろえてください。
+
+```bash
+uv run python -B src/CompareSpectrum.py \
+  --predicted out/gain_spectrum.csv \
+  --reference data/reference_gain.csv \
+  --polarization both \
+  --out-json out/spectrum_comparison.json \
+  --out-plot out/spectrum_comparison.png
+```
+
+波長範囲を限定する場合は `--wavelength-min-nm` と `--wavelength-max-nm` を指定します。
+出力 JSON には TE/TM ごとの predicted / reference 指標、delta、`rmse_gain_cm` が保存されます。
 
 ## 主な引数
 
