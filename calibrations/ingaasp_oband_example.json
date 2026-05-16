@@ -1,0 +1,21 @@
+{
+  "name": "ingaasp_oband_example",
+  "description": "Example only; not calibrated to measured data.",
+  "reference": {
+    "source": "none",
+    "notes": "Demonstrates supported calibration fields for InGaAsP O-band MQW gain screening."
+  },
+  "design_filter": {
+    "family": "ingaasp"
+  },
+  "band": {
+    "qc": 0.4,
+    "Eg_offset_well_eV": 0.0,
+    "Eg_offset_barrier_eV": 0.0
+  },
+  "gain": {
+    "broadening_eV": 0.03,
+    "line_shape": "lorentzian",
+    "gain_scale_cm": 2400.0
+  }
+}

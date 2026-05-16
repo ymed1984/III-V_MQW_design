@@ -8,6 +8,11 @@ dependencies = [
     "matplotlib>=3.10.9",
     "numpy>=2.4.4",
     "pandas>=3.0.2",
+    "pytest>=8.4.2",
     "ruff>=0.15.12",
     "scipy>=1.17.1",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

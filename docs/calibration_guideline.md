@@ -324,6 +324,47 @@ broadening_eV
 gain_scale_cm
 ```
 
+校正 JSON では次のように指定する。
+
+```json
+{
+  "name": "ingaasp_oband_example",
+  "description": "Example only; not calibrated to measured data.",
+  "band": {
+    "qc": 0.4,
+    "Eg_offset_well_eV": 0.0,
+    "Eg_offset_barrier_eV": 0.0
+  },
+  "gain": {
+    "broadening_eV": 0.03,
+    "line_shape": "lorentzian",
+    "gain_scale_cm": 2400.0
+  }
+}
+```
+
+実行例:
+
+```bash
+uv run python -B src/MQWGainDesign.py \
+  --calibration calibrations/ingaasp_oband_example.json \
+  --carrier-density-cm3 2e18 \
+  --out-json out/gain_calibrated.json \
+  --out-csv out/gain_calibrated.csv \
+  --plot out/gain_calibrated.png
+```
+
+CLI 引数で同じ値を明示した場合は、CLI が校正ファイルより優先される。
+
+```bash
+uv run python -B src/MQWGainDesign.py \
+  --calibration calibrations/ingaasp_oband_example.json \
+  --gain-scale-cm 3000
+```
+
+この場合、`gain_scale_cm` は校正ファイル中の値ではなく `3000` が使われる。
+適用された値と CLI override の有無は、出力 JSON の `calibration` に保存される。
+
 必要になった場合だけ追加する候補:
 
 ```text

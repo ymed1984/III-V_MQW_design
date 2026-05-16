@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from BasicMQWDesign import design_default
+from calibration import calibration_summary, load_calibration, resolve_calibration
 from gain import calculate_gain_spectrum, gain_summary_dict, spectrum_to_rows
 from kp_solver import solve_kp_subbands, subband_summary
 
@@ -35,6 +36,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Compact 4x4 k.p MQW material-gain screening helper"
     )
+    ap.add_argument("--calibration", type=Path, default=None)
     ap.add_argument("--family", choices=["algainas", "ingaasp"], default="ingaasp")
     ap.add_argument("--wells", type=int, default=5)
     ap.add_argument("--well-nm", type=float, default=7.0)
@@ -46,6 +48,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--al-barrier", type=float, default=None)
     ap.add_argument("--as-well", type=float, default=None)
     ap.add_argument("--as-barrier", type=float, default=None)
+    ap.add_argument("--eg-offset-well-eV", type=float, default=None)
+    ap.add_argument("--eg-offset-barrier-eV", type=float, default=None)
 
     ap.add_argument("--carrier-density-cm3", type=float, default=2.0e18)
     ap.add_argument("--temperature", type=float, default=300.0)
@@ -57,12 +61,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--energy-min-eV", type=float, default=None)
     ap.add_argument("--energy-max-eV", type=float, default=None)
     ap.add_argument("--energy-points", type=int, default=500)
-    ap.add_argument("--broadening-eV", type=float, default=0.030)
-    ap.add_argument("--line-shape", choices=["lorentzian", "gaussian"], default="lorentzian")
+    ap.add_argument("--broadening-eV", type=float, default=None)
+    ap.add_argument("--line-shape", choices=["lorentzian", "gaussian"], default=None)
     ap.add_argument(
         "--gain-scale-cm",
         type=float,
-        default=2400.0,
+        default=None,
         help="Empirical oscillator-strength scale for cm^-1 output calibration",
     )
 
@@ -124,18 +128,22 @@ def format_summary(result: dict[str, Any], json_path: Path, csv_path: Path, plot
 
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    calibration = load_calibration(args.calibration)
+    resolved_calibration = resolve_calibration(args, calibration)
     design = design_default(
         family=args.family,
         wells=args.wells,
         well_nm=args.well_nm,
         barrier_nm=args.barrier_nm,
-        q_c=args.qc,
+        q_c=resolved_calibration.q_c,
         well_strain=args.well_strain,
         barrier_strain=args.barrier_strain,
         al_well=args.al_well,
         al_barrier=args.al_barrier,
         as_well=args.as_well,
         as_barrier=args.as_barrier,
+        eg_offset_well_eV=resolved_calibration.Eg_offset_well_eV,
+        eg_offset_barrier_eV=resolved_calibration.Eg_offset_barrier_eV,
     )
     profile, subbands = solve_kp_subbands(
         design,
@@ -153,9 +161,9 @@ def main(argv: list[str] | None = None) -> None:
         energy_min_eV=args.energy_min_eV,
         energy_max_eV=args.energy_max_eV,
         energy_points=args.energy_points,
-        broadening_eV=args.broadening_eV,
-        line_shape=args.line_shape,
-        gain_scale_cm=args.gain_scale_cm,
+        broadening_eV=resolved_calibration.broadening_eV,
+        line_shape=resolved_calibration.line_shape,
+        gain_scale_cm=resolved_calibration.gain_scale_cm,
     )
     rows = spectrum_to_rows(spectrum)
     result = {
@@ -165,6 +173,11 @@ def main(argv: list[str] | None = None) -> None:
             "calibration of offsets, broadening, and gain_scale_cm."
         ),
         "design": design,
+        "calibration": calibration_summary(
+            calibration,
+            resolved_calibration,
+            applied_qc=float(design["qc"]),
+        ),
         "kp": subband_summary(profile, subbands),
         "gain": gain_summary_dict(
             spectrum,

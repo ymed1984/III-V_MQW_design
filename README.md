@@ -37,6 +37,13 @@ O-band、特に 1.31 um 近傍の SOA 活性層を想定し、組成、ひずみ
 uv sync
 ```
 
+## テスト
+
+```bash
+uv run python -B -m pytest
+uv run ruff check src tests README.md docs
+```
+
 ## 実行例
 
 既定では InGaAsP 系の O-band 向け候補を計算します。
@@ -140,12 +147,29 @@ uv run python -B src/MQWGainDesign.py \
   --plot out/gain_spectrum.png
 ```
 
+校正ファイルを使う場合:
+
+```bash
+uv run python -B src/MQWGainDesign.py \
+  --calibration calibrations/ingaasp_oband_example.json \
+  --carrier-density-cm3 2e18 \
+  --out-json out/gain_calibrated.json \
+  --out-csv out/gain_calibrated.csv \
+  --plot out/gain_calibrated.png
+```
+
+`calibrations/ingaasp_oband_example.json` は形式確認用の例であり、実測値へ校正済みのパラメータではありません。
+CLI で明示した値は校正ファイルより優先され、最終的に使われた値は出力 JSON の `calibration` に保存されます。
+
 主な追加引数:
 
 | 引数 | 意味 | 既定値 |
 | --- | --- | --- |
+| `--calibration` | 校正 JSON ファイル | なし |
 | `--carrier-density-cm3` | 活性井戸体積でのキャリア密度 [cm^-3] | `2e18` |
 | `--temperature` | 温度 [K] | `300` |
+| `--eg-offset-well-eV` | 井戸層バンドギャップ補正 [eV] | `0` |
+| `--eg-offset-barrier-eV` | 障壁層バンドギャップ補正 [eV] | `0` |
 | `--dz-nm` | z 方向差分グリッド [nm] | `0.10` |
 | `--kt-max-nm` | 面内波数 sweep 上限 [nm^-1] | `0.35` |
 | `--kt-points` | 面内波数点数 | `31` |
@@ -231,6 +255,8 @@ broadening-eV
 | `--al-barrier` | AlGaInAs 障壁層の Al 分率 | `0.30` |
 | `--as-well` | InGaAsP 井戸層の As 分率 | `0.567` |
 | `--as-barrier` | InGaAsP 障壁層の As 分率 | `0.30` |
+| `--eg-offset-well-eV` | 井戸層バンドギャップ補正 [eV] | `0.0` |
+| `--eg-offset-barrier-eV` | 障壁層バンドギャップ補正 [eV] | `0.0` |
 | `--json` | JSON 出力先 | `out/ingaasp_design_result.json` |
 | `--lsf` | Lumerical script 出力先 | `out/ingaasp_lumerical_input.lsf` |
 

@@ -600,6 +600,20 @@ def _family_materials(
     return well, barrier, qc
 
 
+def _with_eg_offset(material: Material, eg_offset_eV: float) -> Material:
+    if not math.isfinite(eg_offset_eV):
+        raise ValueError("Eg offset must be finite")
+    if eg_offset_eV == 0.0:
+        return material
+    return Material(
+        **{
+            **asdict(material),
+            "Eg_eV": material.Eg_eV + eg_offset_eV,
+            "source_note": f"{material.source_note}; Eg offset {eg_offset_eV:+.6g} eV",
+        }
+    )
+
+
 def design_default(
     family: DesignFamily = "ingaasp",
     wells: int = 5,
@@ -612,6 +626,8 @@ def design_default(
     al_barrier: Optional[float] = None,
     as_well: Optional[float] = None,
     as_barrier: Optional[float] = None,
+    eg_offset_well_eV: float = 0.0,
+    eg_offset_barrier_eV: float = 0.0,
 ) -> DesignDict:
     """Return a default O-band SOA MQW design candidate."""
     if family not in FAMILY_DEFAULTS:
@@ -627,6 +643,8 @@ def design_default(
         as_well=as_well,
         as_barrier=as_barrier,
     )
+    well = _with_eg_offset(well, eg_offset_well_eV)
+    barrier = _with_eg_offset(barrier, eg_offset_barrier_eV)
     stack = build_stack(well, barrier, wells, well_nm, barrier_nm)
     tr = transition_estimate(well, barrier, well_nm, barrier_nm, qc)
     return {
@@ -635,6 +653,8 @@ def design_default(
         "well_nm": well_nm,
         "barrier_nm": barrier_nm,
         "qc": qc,
+        "Eg_offset_well_eV": eg_offset_well_eV,
+        "Eg_offset_barrier_eV": eg_offset_barrier_eV,
         "well": asdict(well),
         "barrier": asdict(barrier),
         "transition": tr,
@@ -790,6 +810,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="As fraction y in In_1-xGa_xAs_yP_1-y barrier",
     )
+    ap.add_argument(
+        "--eg-offset-well-eV",
+        type=float,
+        default=0.0,
+        help="Additive well bandgap calibration offset [eV]",
+    )
+    ap.add_argument(
+        "--eg-offset-barrier-eV",
+        type=float,
+        default=0.0,
+        help="Additive barrier bandgap calibration offset [eV]",
+    )
     ap.add_argument("--json", type=Path, default=Path("out/ingaasp_design_result.json"))
     ap.add_argument("--lsf", type=Path, default=Path("out/ingaasp_lumerical_input.lsf"))
     return ap
@@ -833,6 +865,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         al_barrier=args.al_barrier,
         as_well=args.as_well,
         as_barrier=args.as_barrier,
+        eg_offset_well_eV=args.eg_offset_well_eV,
+        eg_offset_barrier_eV=args.eg_offset_barrier_eV,
     )
     json_path = write_design_json(design, args.json)
     lsf_path = write_lumerical_lsf(design, args.lsf)
