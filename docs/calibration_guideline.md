@@ -246,6 +246,29 @@ uv run python -B src/MQWGainDesign.py --gain-scale-cm 3000
 `gain_scale_cm` の候補をまとめて比較する場合は、`MQWGainSweep.py` ではなく単発計算を複数回行う。
 これは `gain_scale_cm` がピーク高さをほぼ線形に変える校正係数であり、波長依存性の sweep よりも基準データとの残差評価として扱う方がよいためである。
 
+### Step 8: 簡易 fit で校正 JSON を生成する
+
+ピーク波長、スペクトル幅、ピークゲインの目標値がある場合は、`FitCalibration.py` で校正 JSON を生成できる。
+初期実装では、次の順序で最小限のパラメータだけを合わせる。
+
+```text
+Eg_offset_well_eV -> broadening_eV -> gain_scale_cm
+```
+
+例:
+
+```bash
+uv run python -B src/FitCalibration.py \
+  --calibration-in calibrations/ingaasp_oband_example.json \
+  --target-peak-wavelength-nm 1310 \
+  --target-te-peak-gain-cm 1200 \
+  --target-fwhm-meV 35 \
+  --out calibrations/fitted/ingaasp_fit.json
+```
+
+生成された JSON には `reference` と `fit_result` が保存される。
+ただし、これは単一点ターゲットに対する簡易 fit であり、複数の carrier density、井戸幅、または Lumerical / 実測スペクトル全体で再確認してから使う。
+
 ## 3. 基準データ別の使い方
 
 ### 3.1 Lumerical MQW

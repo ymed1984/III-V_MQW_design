@@ -15,6 +15,22 @@ O-band、特に 1.31 um 近傍の SOA 活性層を想定し、組成、ひずみ
 - e1-hh1 / e1-lh1 遷移波長の概算
 - MQW 全体の平均ひずみ、ひずみ厚み積、簡易臨界膜厚の見積もり
 - Lumerical MQW 計算へ渡すための `.lsf` 入力断片の生成
+- 簡易 k.p による TE/TM 材料ゲインスペクトルの計算
+- 校正 JSON を使ったゲイン計算、sweep、簡易 fit
+- バンド端、波動関数、サブバンド分散、ゲインスペクトルの PNG 可視化
+
+## 主なスクリプト
+
+| スクリプト | 役割 |
+| --- | --- |
+| `src/BasicMQWDesign.py` | MQW 構造、組成、ひずみ、有限井戸準位、遷移波長、Lumerical `.lsf` の一次設計 |
+| `src/CriticalFilmStress.py` | 単層の二軸膜応力と簡易臨界膜厚の見積もり |
+| `src/MQWGainDesign.py` | 簡易 k.p サブバンドと TE/TM 材料ゲインスペクトルの単発計算 |
+| `src/MQWGainSweep.py` | キャリア密度、井戸幅、ひずみ、`qc`、線幅などの sweep |
+| `src/FitCalibration.py` | 目標ピーク波長、ピークゲイン、FWHM から校正 JSON を生成 |
+| `src/calibration.py` | 校正 JSON の読み込み、検証、CLI override 解決 |
+| `src/metrics.py` | peak、FWHM、補間 gain、RMSE などのスペクトル指標 |
+| `src/visualization.py` | ゲイン、バンド図、波動関数、サブバンド分散、sweep summary の描画 |
 
 ## 注意
 
@@ -23,6 +39,7 @@ O-band、特に 1.31 um 近傍の SOA 活性層を想定し、組成、ひずみ
 
 出力される遷移波長は「ひずみと量子閉じ込めを含めたバンド端遷移の概算値」です。
 最終的な利得ピーク、PL ピーク、TE/TM 利得差は Lumerical MQW、nextnano などで再検証してください。
+`FitCalibration.py` が生成する校正 JSON も、単一点ターゲットに対する簡易 fit 結果です。実測値または Lumerical スペクトル全体で検証してから設計判断に使ってください。
 
 ## 必要環境
 
@@ -262,6 +279,23 @@ broadening-eV
 歪みのように負の値を `--values` で渡す場合は、`--values=-0.004,-0.006,-0.008` のように `=` 付きで指定してください。
 `--sweep qc` と `--sweep broadening-eV` では、sweep 値が校正ファイルや CLI の固定値より優先されます。
 出力 JSON には `calibration` と `sweep` metadata が保存されます。
+
+### 簡易校正フィット
+
+`src/FitCalibration.py` では、目標 TE ピーク波長、TE ピークゲイン、任意の FWHM に合わせて、最小限の校正 JSON を生成できます。
+初期実装では `Eg_offset_well_eV`、`broadening_eV`、`gain_scale_cm` を順に調整します。
+
+```bash
+uv run python -B src/FitCalibration.py \
+  --calibration-in calibrations/ingaasp_oband_example.json \
+  --target-peak-wavelength-nm 1310 \
+  --target-te-peak-gain-cm 1200 \
+  --target-fwhm-meV 35 \
+  --out calibrations/fitted/ingaasp_fit.json
+```
+
+生成された校正 JSON は `MQWGainDesign.py --calibration` や `MQWGainSweep.py --calibration` に渡せます。
+これは単一点ターゲットへの簡易フィットなので、Lumerical や実測スペクトルで妥当性を確認してから使用してください。
 
 ## 主な引数
 
