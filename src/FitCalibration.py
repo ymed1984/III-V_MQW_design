@@ -7,7 +7,7 @@ import argparse
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 from scipy.optimize import minimize_scalar
@@ -17,6 +17,9 @@ from calibration import load_calibration, resolve_calibration
 from gain import calculate_gain_spectrum, spectrum_to_rows
 from kp_solver import solve_kp_subbands
 from metrics import SpectrumMetrics, peak_metrics
+from spectrum_io import filter_wavelength_range, read_spectrum_csv
+
+Polarization = Literal["TE", "TM"]
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,30 @@ class FitState:
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["metrics"] = self.metrics.as_dict()
+        return result
+
+
+@dataclass(frozen=True)
+class FitTargets:
+    polarization: Polarization
+    peak_wavelength_nm: float
+    peak_gain_cm: float
+    fwhm_meV: float | None
+    source: str
+    reference_metrics: SpectrumMetrics | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "source": self.source,
+            "target_polarization": self.polarization,
+            "target_peak_wavelength_nm": self.peak_wavelength_nm,
+            "target_peak_gain_cm": self.peak_gain_cm,
+            "target_fwhm_meV": self.fwhm_meV,
+        }
+        if self.polarization == "TE":
+            result["target_te_peak_gain_cm"] = self.peak_gain_cm
+        if self.reference_metrics is not None:
+            result["reference_metrics"] = self.reference_metrics.as_dict()
         return result
 
 
@@ -53,6 +80,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--calibration-in", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=Path("calibrations/fitted/fit.json"))
     ap.add_argument("--name", type=str, default="mqw_gain_fit")
+    ap.add_argument(
+        "--reference-csv",
+        type=Path,
+        default=None,
+        help="Reference spectrum CSV; target metrics are derived from it unless overridden.",
+    )
+    ap.add_argument("--reference-polarization", choices=["TE", "TM"], default="TE")
+    ap.add_argument("--wavelength-min-nm", type=float, default=None)
+    ap.add_argument("--wavelength-max-nm", type=float, default=None)
 
     ap.add_argument("--family", choices=["algainas", "ingaasp"], default="ingaasp")
     ap.add_argument("--wells", type=int, default=5)
@@ -82,8 +118,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--line-shape", choices=["lorentzian", "gaussian"], default=None)
     ap.add_argument("--gain-scale-cm", type=float, default=None)
 
-    ap.add_argument("--target-peak-wavelength-nm", type=float, required=True)
-    ap.add_argument("--target-te-peak-gain-cm", type=float, required=True)
+    ap.add_argument("--target-polarization", choices=["TE", "TM"], default=None)
+    ap.add_argument("--target-peak-wavelength-nm", type=float, default=None)
+    ap.add_argument("--target-peak-gain-cm", type=float, default=None)
+    ap.add_argument("--target-te-peak-gain-cm", type=float, default=None)
     ap.add_argument("--target-fwhm-meV", type=float, default=None)
     ap.add_argument("--eg-offset-min-eV", type=float, default=-0.10)
     ap.add_argument("--eg-offset-max-eV", type=float, default=0.10)
@@ -98,11 +136,55 @@ def _resolved_from_args(args: argparse.Namespace):
     return resolve_calibration(args, calibration)
 
 
+def resolve_fit_targets(args: argparse.Namespace) -> FitTargets:
+    reference_metrics = None
+    source = "cli"
+    polarization: Polarization = args.target_polarization or args.reference_polarization
+    peak_wavelength = args.target_peak_wavelength_nm
+    peak_gain = args.target_peak_gain_cm
+    if peak_gain is None:
+        peak_gain = args.target_te_peak_gain_cm
+    fwhm = args.target_fwhm_meV
+
+    if args.reference_csv is not None:
+        reference_rows = filter_wavelength_range(
+            read_spectrum_csv(args.reference_csv),
+            args.wavelength_min_nm,
+            args.wavelength_max_nm,
+        )
+        polarization = args.target_polarization or args.reference_polarization
+        reference_metrics = peak_metrics(reference_rows, polarization)
+        source = str(args.reference_csv)
+        if peak_wavelength is None:
+            peak_wavelength = reference_metrics.peak_wavelength_nm
+        if peak_gain is None:
+            peak_gain = reference_metrics.peak_gain_cm
+        if fwhm is None and np.isfinite(reference_metrics.fwhm_meV):
+            fwhm = reference_metrics.fwhm_meV
+
+    if peak_wavelength is None:
+        raise ValueError("--target-peak-wavelength-nm is required without --reference-csv")
+    if peak_gain is None:
+        raise ValueError(
+            "--target-peak-gain-cm or --target-te-peak-gain-cm is required "
+            "without --reference-csv"
+        )
+    return FitTargets(
+        polarization=polarization,
+        peak_wavelength_nm=float(peak_wavelength),
+        peak_gain_cm=float(peak_gain),
+        fwhm_meV=None if fwhm is None else float(fwhm),
+        source=source,
+        reference_metrics=reference_metrics,
+    )
+
+
 def _run_gain(
     args: argparse.Namespace,
     eg_offset_well_eV: float,
     broadening_eV: float,
     gain_scale_cm: float,
+    polarization: Polarization,
 ) -> tuple[SpectrumMetrics, list[dict[str, float]], dict[str, Any]]:
     resolved = _resolved_from_args(args)
     design = design_default(
@@ -141,16 +223,27 @@ def _run_gain(
         gain_scale_cm=gain_scale_cm,
     )
     rows = spectrum_to_rows(spectrum)
-    return peak_metrics(rows, "TE"), rows, design
+    return peak_metrics(rows, polarization), rows, design
 
 
-def _fit_eg_offset(args: argparse.Namespace, initial_broadening: float, initial_gain_scale: float) -> float:
+def _fit_eg_offset(
+    args: argparse.Namespace,
+    targets: FitTargets,
+    initial_broadening: float,
+    initial_gain_scale: float,
+) -> float:
     if args.eg_offset_min_eV >= args.eg_offset_max_eV:
         raise ValueError("--eg-offset-min-eV must be smaller than --eg-offset-max-eV")
 
     def objective(offset: float) -> float:
-        metrics, _, _ = _run_gain(args, offset, initial_broadening, initial_gain_scale)
-        return (metrics.peak_wavelength_nm - args.target_peak_wavelength_nm) ** 2
+        metrics, _, _ = _run_gain(
+            args,
+            offset,
+            initial_broadening,
+            initial_gain_scale,
+            targets.polarization,
+        )
+        return (metrics.peak_wavelength_nm - targets.peak_wavelength_nm) ** 2
 
     result = minimize_scalar(
         objective,
@@ -163,18 +256,29 @@ def _fit_eg_offset(args: argparse.Namespace, initial_broadening: float, initial_
     return float(result.x)
 
 
-def _fit_broadening(args: argparse.Namespace, eg_offset: float, initial_gain_scale: float) -> float:
+def _fit_broadening(
+    args: argparse.Namespace,
+    targets: FitTargets,
+    eg_offset: float,
+    initial_gain_scale: float,
+) -> float:
     resolved = _resolved_from_args(args)
-    if args.target_fwhm_meV is None:
+    if targets.fwhm_meV is None:
         return resolved.broadening_eV
     if args.broadening_min_eV <= 0 or args.broadening_min_eV >= args.broadening_max_eV:
         raise ValueError("invalid broadening bounds")
 
     def objective(broadening: float) -> float:
-        metrics, _, _ = _run_gain(args, eg_offset, broadening, initial_gain_scale)
+        metrics, _, _ = _run_gain(
+            args,
+            eg_offset,
+            broadening,
+            initial_gain_scale,
+            targets.polarization,
+        )
         if not np.isfinite(metrics.fwhm_meV):
             return float("inf")
-        return (metrics.fwhm_meV - args.target_fwhm_meV) ** 2
+        return (metrics.fwhm_meV - targets.fwhm_meV) ** 2
 
     result = minimize_scalar(
         objective,
@@ -189,22 +293,35 @@ def _fit_broadening(args: argparse.Namespace, eg_offset: float, initial_gain_sca
 
 def fit_calibration(args: argparse.Namespace) -> tuple[dict[str, Any], FitState]:
     resolved = _resolved_from_args(args)
-    eg_offset = _fit_eg_offset(args, resolved.broadening_eV, resolved.gain_scale_cm)
-    broadening = _fit_broadening(args, eg_offset, resolved.gain_scale_cm)
+    targets = resolve_fit_targets(args)
+    eg_offset = _fit_eg_offset(
+        args,
+        targets,
+        resolved.broadening_eV,
+        resolved.gain_scale_cm,
+    )
+    broadening = _fit_broadening(args, targets, eg_offset, resolved.gain_scale_cm)
     metrics_before_scale, _, design = _run_gain(
         args,
         eg_offset,
         broadening,
         resolved.gain_scale_cm,
+        targets.polarization,
     )
     if metrics_before_scale.peak_gain_cm <= 0:
-        raise RuntimeError("cannot fit gain scale because current TE peak gain is not positive")
+        raise RuntimeError("cannot fit gain scale because current peak gain is not positive")
     gain_scale = (
         resolved.gain_scale_cm
-        * args.target_te_peak_gain_cm
+        * targets.peak_gain_cm
         / metrics_before_scale.peak_gain_cm
     )
-    final_metrics, _, _ = _run_gain(args, eg_offset, broadening, gain_scale)
+    final_metrics, _, _ = _run_gain(
+        args,
+        eg_offset,
+        broadening,
+        gain_scale,
+        targets.polarization,
+    )
     state = FitState(
         Eg_offset_well_eV=eg_offset,
         broadening_eV=broadening,
@@ -214,11 +331,7 @@ def fit_calibration(args: argparse.Namespace) -> tuple[dict[str, Any], FitState]
     output = {
         "name": args.name,
         "description": "Generated by FitCalibration.py; validate against reference data before use.",
-        "reference": {
-            "target_peak_wavelength_nm": args.target_peak_wavelength_nm,
-            "target_te_peak_gain_cm": args.target_te_peak_gain_cm,
-            "target_fwhm_meV": args.target_fwhm_meV,
-        },
+        "reference": targets.as_dict(),
         "design_filter": {
             "family": args.family,
             "wells": args.wells,
@@ -238,13 +351,14 @@ def fit_calibration(args: argparse.Namespace) -> tuple[dict[str, Any], FitState]
         "fit_result": state.as_dict(),
     }
     output["fit_result"]["residuals"] = {
+        "polarization": targets.polarization,
         "peak_wavelength_nm": final_metrics.peak_wavelength_nm
-        - args.target_peak_wavelength_nm,
-        "peak_gain_cm": final_metrics.peak_gain_cm - args.target_te_peak_gain_cm,
+        - targets.peak_wavelength_nm,
+        "peak_gain_cm": final_metrics.peak_gain_cm - targets.peak_gain_cm,
         "fwhm_meV": (
             None
-            if args.target_fwhm_meV is None
-            else final_metrics.fwhm_meV - args.target_fwhm_meV
+            if targets.fwhm_meV is None
+            else final_metrics.fwhm_meV - targets.fwhm_meV
         ),
     }
     return output, state
@@ -258,9 +372,9 @@ def format_summary(path: Path, state: FitState) -> str:
             f"Eg offset well     : {state.Eg_offset_well_eV:+.5f} eV",
             f"broadening         : {state.broadening_eV * 1000:.2f} meV",
             f"gain scale         : {state.gain_scale_cm:.6g} cm^-1 scale",
-            f"TE peak wavelength : {metrics.peak_wavelength_nm:.2f} nm",
-            f"TE peak gain       : {metrics.peak_gain_cm:.3g} cm^-1",
-            f"TE FWHM            : {metrics.fwhm_meV:.2f} meV",
+            f"fit peak wavelength: {metrics.peak_wavelength_nm:.2f} nm",
+            f"fit peak gain      : {metrics.peak_gain_cm:.3g} cm^-1",
+            f"fit FWHM           : {metrics.fwhm_meV:.2f} meV",
             f"wrote calibration  : {path}",
         )
     )

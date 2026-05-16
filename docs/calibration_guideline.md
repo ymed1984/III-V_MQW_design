@@ -268,6 +268,15 @@ uv run python -B src/FitCalibration.py \
 
 生成された JSON には `reference` と `fit_result` が保存される。
 ただし、これは単一点ターゲットに対する簡易 fit であり、複数の carrier density、井戸幅、または Lumerical / 実測スペクトル全体で再確認してから使う。
+基準スペクトル CSV から target を抽出する場合は、`--reference-csv` と `--reference-polarization` を指定する。
+
+```bash
+uv run python -B src/FitCalibration.py \
+  --calibration-in calibrations/ingaasp_oband_example.json \
+  --reference-csv data/reference_gain.csv \
+  --reference-polarization TE \
+  --out calibrations/fitted/ingaasp_fit_from_reference.json
+```
 
 ### Step 9: スペクトル全体で比較する
 
@@ -291,6 +300,18 @@ uv run python -B src/CompareSpectrum.py \
 - `rmse_gain_cm`
 
 peak だけが合っていても RMSE が大きい場合は、線幅、キャリア密度、TE/TM 定義、基準データの材料ゲイン換算を再確認する。
+
+また、`MQWGainSweep.py --reference-csv` を使うと、各 sweep 点を基準スペクトルと比較し、RMSE 最小の候補を `reference_comparison.best` として保存できる。
+
+```bash
+uv run python -B src/MQWGainSweep.py \
+  --calibration calibrations/ingaasp_oband_example.json \
+  --sweep qc \
+  --values 0.35,0.40,0.45 \
+  --reference-csv data/reference_gain.csv \
+  --comparison-polarization both \
+  --comparison-csv out/gain_sweep_qc_comparison.csv
+```
 
 ## 3. 基準データ別の使い方
 

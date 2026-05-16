@@ -7,7 +7,7 @@ import argparse
 import csv
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,9 +21,12 @@ from calibration import (
 )
 from gain import calculate_gain_spectrum, spectrum_to_rows
 from kp_solver import solve_kp_subbands
+from metrics import peak_metrics, spectrum_rmse
+from spectrum_io import filter_wavelength_range, read_spectrum_csv
 from visualization import plot_sweep_summary
 
 SweepName = str
+Polarization = Literal["TE", "TM"]
 
 
 def _json_safe(value: Any) -> Any:
@@ -125,6 +128,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("out/gain_sweep_spectra.png"),
         help="Overlay plot of gain versus wavelength at every sweep value.",
+    )
+    ap.add_argument(
+        "--reference-csv",
+        type=Path,
+        default=None,
+        help="Reference spectrum CSV used to rank sweep points by gain RMSE.",
+    )
+    ap.add_argument("--comparison-polarization", choices=["TE", "TM", "both"], default="both")
+    ap.add_argument("--wavelength-min-nm", type=float, default=None)
+    ap.add_argument("--wavelength-max-nm", type=float, default=None)
+    ap.add_argument(
+        "--comparison-csv",
+        type=Path,
+        default=Path("out/gain_sweep_comparison.csv"),
+        help="CSV output for reference comparison metrics when --reference-csv is set.",
     )
     return ap
 
@@ -308,6 +326,49 @@ def write_spectra_plot(
     return path
 
 
+def _comparison_polarizations(args: argparse.Namespace) -> list[Polarization]:
+    if args.comparison_polarization == "both":
+        return ["TE", "TM"]
+    return [args.comparison_polarization]
+
+
+def compare_sweep_to_reference(
+    rows: list[dict[str, float]],
+    spectra_rows: list[dict[str, float]],
+    reference_rows: list[dict[str, float]],
+    polarizations: list[Polarization],
+) -> list[dict[str, float]]:
+    comparison_rows = []
+    for summary in rows:
+        value = summary["sweep_value"]
+        predicted_rows = [row for row in spectra_rows if row["sweep_value"] == value]
+        output = {
+            "sweep_value": value,
+            "carrier_density_cm3": summary["carrier_density_cm3"],
+            "well_nm": summary["well_nm"],
+            "well_strain": summary["well_strain"],
+            "qc": summary["qc"],
+            "broadening_eV": summary["broadening_eV"],
+        }
+        rmses = []
+        for pol in polarizations:
+            predicted = peak_metrics(predicted_rows, pol)
+            reference = peak_metrics(reference_rows, pol)
+            rmse = spectrum_rmse(predicted_rows, reference_rows, pol)
+            rmses.append(rmse)
+            output[f"{pol}_rmse_gain_cm"] = rmse
+            output[f"{pol}_peak_wavelength_delta_nm"] = (
+                predicted.peak_wavelength_nm - reference.peak_wavelength_nm
+            )
+            output[f"{pol}_peak_gain_delta_cm"] = (
+                predicted.peak_gain_cm - reference.peak_gain_cm
+            )
+            output[f"{pol}_fwhm_delta_meV"] = predicted.fwhm_meV - reference.fwhm_meV
+        output["score_rmse_gain_cm"] = float(np.mean(rmses))
+        comparison_rows.append(output)
+    return comparison_rows
+
+
 def _axis_label(sweep: SweepName) -> str:
     labels = {
         "carrier-density": "Carrier density [cm$^{-3}$]",
@@ -338,27 +399,40 @@ def format_summary(
     plot_path: Path,
     spectra_csv_path: Path,
     spectra_plot_path: Path,
+    comparison_csv_path: Path | None = None,
+    best_reference_match: dict[str, float] | None = None,
 ) -> str:
     best_te = max(rows, key=lambda row: row["peak_TE_gain_cm-1"])
     best_tm = max(rows, key=lambda row: row["peak_TM_gain_cm-1"])
-    return "\n".join(
-        (
-            "=== MQW compact k.p gain peak sweep ===",
-            f"sweep              : {sweep}",
-            f"points             : {len(rows)}",
-            f"TE max peak        : {best_te['peak_TE_gain_cm-1']:.3g} cm^-1 at "
-            f"{best_te['peak_TE_wavelength_nm']:.1f} nm "
-            f"(sweep={best_te['sweep_value']:.6g})",
-            f"TM max peak        : {best_tm['peak_TM_gain_cm-1']:.3g} cm^-1 at "
-            f"{best_tm['peak_TM_wavelength_nm']:.1f} nm "
-            f"(sweep={best_tm['sweep_value']:.6g})",
+    lines = [
+        "=== MQW compact k.p gain peak sweep ===",
+        f"sweep              : {sweep}",
+        f"points             : {len(rows)}",
+        f"TE max peak        : {best_te['peak_TE_gain_cm-1']:.3g} cm^-1 at "
+        f"{best_te['peak_TE_wavelength_nm']:.1f} nm "
+        f"(sweep={best_te['sweep_value']:.6g})",
+        f"TM max peak        : {best_tm['peak_TM_gain_cm-1']:.3g} cm^-1 at "
+        f"{best_tm['peak_TM_wavelength_nm']:.1f} nm "
+        f"(sweep={best_tm['sweep_value']:.6g})",
+    ]
+    if best_reference_match is not None:
+        lines.append(
+            "best reference RMSE: "
+            f"{best_reference_match['score_rmse_gain_cm']:.3g} cm^-1 "
+            f"(sweep={best_reference_match['sweep_value']:.6g})"
+        )
+    lines.extend(
+        [
             f"wrote JSON         : {json_path}",
             f"wrote CSV          : {csv_path}",
             f"wrote plot         : {plot_path}",
             f"wrote spectra CSV  : {spectra_csv_path}",
             f"wrote spectra plot : {spectra_plot_path}",
-        )
+        ]
     )
+    if comparison_csv_path is not None:
+        lines.append(f"wrote comparison   : {comparison_csv_path}")
+    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -372,6 +446,25 @@ def main(argv: list[str] | None = None) -> None:
         summary, spectrum_rows = run_one(args, resolved_calibration, args.sweep, value)
         rows.append(summary)
         spectra_rows.extend(spectrum_rows)
+    comparison_rows = None
+    best_reference_match = None
+    if args.reference_csv is not None:
+        reference_rows = filter_wavelength_range(
+            read_spectrum_csv(args.reference_csv),
+            args.wavelength_min_nm,
+            args.wavelength_max_nm,
+        )
+        polarizations = _comparison_polarizations(args)
+        comparison_rows = compare_sweep_to_reference(
+            rows,
+            spectra_rows,
+            reference_rows,
+            polarizations,
+        )
+        best_reference_match = min(
+            comparison_rows,
+            key=lambda row: row["score_rmse_gain_cm"],
+        )
     base_design = design_default(
         family=args.family,
         wells=args.wells,
@@ -405,6 +498,17 @@ def main(argv: list[str] | None = None) -> None:
         "rows": rows,
         "spectra_csv": str(args.spectra_csv),
     }
+    if comparison_rows is not None:
+        result["reference_comparison"] = {
+            "reference_csv": str(args.reference_csv),
+            "comparison_polarization": args.comparison_polarization,
+            "wavelength_filter": {
+                "min_nm": args.wavelength_min_nm,
+                "max_nm": args.wavelength_max_nm,
+            },
+            "comparison_csv": str(args.comparison_csv),
+            "best": best_reference_match,
+        }
 
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
     args.out_json.write_text(
@@ -415,6 +519,8 @@ def main(argv: list[str] | None = None) -> None:
     write_spectra_csv(spectra_rows, args.spectra_csv)
     write_plot(rows, args.sweep, args.plot)
     write_spectra_plot(rows, spectra_rows, args.sweep, args.spectra_plot)
+    if comparison_rows is not None:
+        write_csv(comparison_rows, args.comparison_csv)
     print(
         format_summary(
             rows,
@@ -424,6 +530,8 @@ def main(argv: list[str] | None = None) -> None:
             args.plot,
             args.spectra_csv,
             args.spectra_plot,
+            args.comparison_csv if comparison_rows is not None else None,
+            best_reference_match,
         )
     )
 

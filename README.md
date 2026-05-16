@@ -244,6 +244,9 @@ uv run python -B src/MQWGainSweep.py \
   --calibration calibrations/ingaasp_oband_example.json \
   --sweep qc \
   --values 0.35,0.40,0.45 \
+  --reference-csv data/reference_gain.csv \
+  --comparison-polarization both \
+  --comparison-csv out/gain_sweep_qc_comparison.csv \
   --out-json out/gain_sweep_qc.json \
   --out-csv out/gain_sweep_qc.csv \
   --plot out/gain_sweep_qc_peak.png \
@@ -277,9 +280,10 @@ broadening-eV
 
 `--plot` の PNG は上下 2 段のグラフで、上段にピーク波長、下段にピーク材料ゲインを TE/TM 別に表示します。
 `--spectra-plot` の PNG は上下 2 段で、TE/TM それぞれのゲインスペクトルを sweep 値ごとに重ね描きします。
+`--reference-csv` を指定すると、各 sweep 点のスペクトルを基準 CSV と比較し、`--comparison-csv` に RMSE と peak / FWHM 差分を保存します。
 歪みのように負の値を `--values` で渡す場合は、`--values=-0.004,-0.006,-0.008` のように `=` 付きで指定してください。
 `--sweep qc` と `--sweep broadening-eV` では、sweep 値が校正ファイルや CLI の固定値より優先されます。
-出力 JSON には `calibration` と `sweep` metadata が保存されます。
+出力 JSON には `calibration`、`sweep`、基準比較を行った場合は `reference_comparison` metadata が保存されます。
 
 ### 簡易校正フィット
 
@@ -297,6 +301,15 @@ uv run python -B src/FitCalibration.py \
 
 生成された校正 JSON は `MQWGainDesign.py --calibration` や `MQWGainSweep.py --calibration` に渡せます。
 これは単一点ターゲットへの簡易フィットなので、Lumerical や実測スペクトルで妥当性を確認してから使用してください。
+基準スペクトル CSV から target を抽出する場合は、次のように指定できます。
+
+```bash
+uv run python -B src/FitCalibration.py \
+  --calibration-in calibrations/ingaasp_oband_example.json \
+  --reference-csv data/reference_gain.csv \
+  --reference-polarization TE \
+  --out calibrations/fitted/ingaasp_fit_from_reference.json
+```
 
 ### 外部スペクトルとの比較
 

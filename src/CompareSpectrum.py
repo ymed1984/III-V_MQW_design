@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from pathlib import Path
 from typing import Any, Literal
@@ -13,6 +12,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from metrics import peak_metrics, spectrum_rmse
+from spectrum_io import filter_wavelength_range, read_spectrum_csv
 
 Polarization = Literal["TE", "TM"]
 
@@ -48,37 +48,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--wavelength-min-nm", type=float, default=None)
     ap.add_argument("--wavelength-max-nm", type=float, default=None)
     return ap
-
-
-def read_spectrum_csv(path: Path) -> list[dict[str, float]]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        rows = [{key: float(value) for key, value in row.items()} for row in reader]
-    required = {"energy_eV", "wavelength_nm", "gain_TE_cm-1", "gain_TM_cm-1"}
-    if not rows:
-        raise ValueError(f"{path} contains no rows")
-    missing = required.difference(rows[0])
-    if missing:
-        raise ValueError(f"{path} is missing required columns: {sorted(missing)}")
-    return rows
-
-
-def filter_wavelength_range(
-    rows: list[dict[str, float]],
-    min_nm: float | None,
-    max_nm: float | None,
-) -> list[dict[str, float]]:
-    result = []
-    for row in rows:
-        wavelength = row["wavelength_nm"]
-        if min_nm is not None and wavelength < min_nm:
-            continue
-        if max_nm is not None and wavelength > max_nm:
-            continue
-        result.append(row)
-    if not result:
-        raise ValueError("wavelength filter removed all rows")
-    return result
 
 
 def compare_spectra(
