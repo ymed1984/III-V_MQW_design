@@ -6,29 +6,15 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from metrics import peak_metrics, spectrum_rmse
+from json_utils import json_safe
+from metrics import Polarization
+from spectrum_compare import compare_spectra, polarizations_from_choice
 from spectrum_io import filter_wavelength_range, read_spectrum_csv
-
-Polarization = Literal["TE", "TM"]
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return [_json_safe(item) for item in value.tolist()]
-    if isinstance(value, np.floating):
-        return float(value)
-    if isinstance(value, np.integer):
-        return int(value)
-    return value
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -48,30 +34,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--wavelength-min-nm", type=float, default=None)
     ap.add_argument("--wavelength-max-nm", type=float, default=None)
     return ap
-
-
-def compare_spectra(
-    predicted_rows: list[dict[str, float]],
-    reference_rows: list[dict[str, float]],
-    polarizations: list[Polarization],
-) -> dict[str, Any]:
-    comparisons: dict[str, Any] = {}
-    for pol in polarizations:
-        predicted = peak_metrics(predicted_rows, pol)
-        reference = peak_metrics(reference_rows, pol)
-        comparisons[pol] = {
-            "predicted": predicted.as_dict(),
-            "reference": reference.as_dict(),
-            "delta": {
-                "peak_wavelength_nm": predicted.peak_wavelength_nm
-                - reference.peak_wavelength_nm,
-                "peak_energy_eV": predicted.peak_energy_eV - reference.peak_energy_eV,
-                "peak_gain_cm": predicted.peak_gain_cm - reference.peak_gain_cm,
-                "fwhm_meV": predicted.fwhm_meV - reference.fwhm_meV,
-            },
-            "rmse_gain_cm": spectrum_rmse(predicted_rows, reference_rows, pol),
-        }
-    return comparisons
 
 
 def write_comparison_plot(
@@ -130,9 +92,7 @@ def format_summary(result: dict[str, Any], json_path: Path, plot_path: Path) -> 
 
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
-    polarizations: list[Polarization] = (
-        ["TE", "TM"] if args.polarization == "both" else [args.polarization]
-    )
+    polarizations = polarizations_from_choice(args.polarization)
     predicted_rows = filter_wavelength_range(
         read_spectrum_csv(args.predicted),
         args.wavelength_min_nm,
@@ -155,7 +115,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
     args.out_json.write_text(
-        json.dumps(_json_safe(result), ensure_ascii=False, indent=2),
+        json.dumps(json_safe(result), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     write_comparison_plot(predicted_rows, reference_rows, polarizations, args.out_plot)

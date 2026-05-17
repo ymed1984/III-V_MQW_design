@@ -7,7 +7,7 @@ import argparse
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from scipy.optimize import minimize_scalar
@@ -15,11 +15,10 @@ from scipy.optimize import minimize_scalar
 from BasicMQWDesign import design_default
 from calibration import load_calibration, resolve_calibration
 from gain import calculate_gain_spectrum, spectrum_to_rows
+from json_utils import json_safe
 from kp_solver import solve_kp_subbands
-from metrics import SpectrumMetrics, peak_metrics
+from metrics import Polarization, SpectrumMetrics, peak_metrics
 from spectrum_io import filter_wavelength_range, read_spectrum_csv
-
-Polarization = Literal["TE", "TM"]
 
 
 @dataclass(frozen=True)
@@ -57,20 +56,6 @@ class FitTargets:
         if self.reference_metrics is not None:
             result["reference_metrics"] = self.reference_metrics.as_dict()
         return result
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return [_json_safe(item) for item in value.tolist()]
-    if isinstance(value, np.floating):
-        return float(value)
-    if isinstance(value, np.integer):
-        return int(value)
-    return value
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -385,7 +370,7 @@ def main(argv: list[str] | None = None) -> None:
     output, state = fit_calibration(args)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
-        json.dumps(_json_safe(output), ensure_ascii=False, indent=2),
+        json.dumps(json_safe(output), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     print(format_summary(args.out, state))

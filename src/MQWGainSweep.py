@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -20,27 +19,14 @@ from calibration import (
     resolve_calibration,
 )
 from gain import calculate_gain_spectrum, spectrum_to_rows
+from json_utils import json_safe
 from kp_solver import solve_kp_subbands
-from metrics import peak_metrics, spectrum_rmse
-from spectrum_io import filter_wavelength_range, read_spectrum_csv
+from metrics import Polarization
+from spectrum_compare import flatten_comparison_metrics, polarizations_from_choice
+from spectrum_io import filter_wavelength_range, read_spectrum_csv, write_rows_csv
 from visualization import plot_sweep_summary
 
 SweepName = str
-Polarization = Literal["TE", "TM"]
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return [_json_safe(item) for item in value.tolist()]
-    if isinstance(value, np.floating):
-        return float(value)
-    if isinstance(value, np.integer):
-        return int(value)
-    return value
 
 
 def _parse_values(args: argparse.Namespace) -> list[float]:
@@ -268,12 +254,7 @@ def _sweep_calibration_field(sweep: SweepName) -> str | None:
 
 
 def write_csv(rows: list[dict[str, float]], path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
+    return write_rows_csv(rows, path)
 
 
 def write_spectra_csv(rows: list[dict[str, float]], path: Path) -> Path:
@@ -326,12 +307,6 @@ def write_spectra_plot(
     return path
 
 
-def _comparison_polarizations(args: argparse.Namespace) -> list[Polarization]:
-    if args.comparison_polarization == "both":
-        return ["TE", "TM"]
-    return [args.comparison_polarization]
-
-
 def compare_sweep_to_reference(
     rows: list[dict[str, float]],
     spectra_rows: list[dict[str, float]],
@@ -350,21 +325,9 @@ def compare_sweep_to_reference(
             "qc": summary["qc"],
             "broadening_eV": summary["broadening_eV"],
         }
-        rmses = []
-        for pol in polarizations:
-            predicted = peak_metrics(predicted_rows, pol)
-            reference = peak_metrics(reference_rows, pol)
-            rmse = spectrum_rmse(predicted_rows, reference_rows, pol)
-            rmses.append(rmse)
-            output[f"{pol}_rmse_gain_cm"] = rmse
-            output[f"{pol}_peak_wavelength_delta_nm"] = (
-                predicted.peak_wavelength_nm - reference.peak_wavelength_nm
-            )
-            output[f"{pol}_peak_gain_delta_cm"] = (
-                predicted.peak_gain_cm - reference.peak_gain_cm
-            )
-            output[f"{pol}_fwhm_delta_meV"] = predicted.fwhm_meV - reference.fwhm_meV
-        output["score_rmse_gain_cm"] = float(np.mean(rmses))
+        output.update(
+            flatten_comparison_metrics(predicted_rows, reference_rows, polarizations)
+        )
         comparison_rows.append(output)
     return comparison_rows
 
@@ -454,7 +417,7 @@ def main(argv: list[str] | None = None) -> None:
             args.wavelength_min_nm,
             args.wavelength_max_nm,
         )
-        polarizations = _comparison_polarizations(args)
+        polarizations = polarizations_from_choice(args.comparison_polarization)
         comparison_rows = compare_sweep_to_reference(
             rows,
             spectra_rows,
@@ -512,7 +475,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
     args.out_json.write_text(
-        json.dumps(_json_safe(result), ensure_ascii=False, indent=2),
+        json.dumps(json_safe(result), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     write_csv(rows, args.out_csv)

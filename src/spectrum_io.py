@@ -25,6 +25,17 @@ def read_spectrum_csv(path: Path) -> list[dict[str, float]]:
     return rows
 
 
+def write_rows_csv(rows: list[dict[str, float]], path: Path) -> Path:
+    if not rows:
+        raise ValueError("CSV rows must not be empty")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    return path
+
+
 def filter_wavelength_range(
     rows: list[dict[str, float]],
     min_nm: float | None,

@@ -43,6 +43,8 @@
 | `FitCalibration.py` | 目標 peak wavelength / peak gain / FWHM から校正 JSON を生成 |
 | `CompareSpectrum.py` | 計算スペクトルと外部基準スペクトルの peak / FWHM / RMSE 比較 |
 | `spectrum_io.py` | スペクトル CSV schema の読み込み、必須列検証、波長範囲フィルタ |
+| `spectrum_compare.py` | 計算スペクトルと基準スペクトルの指標差分、RMSE、sweep 比較用の平坦化 |
+| `json_utils.py` | numpy scalar / ndarray を含む出力を JSON へ保存するための変換 |
 
 ## 0.2 k.p ゲイン計算の位置づけ
 

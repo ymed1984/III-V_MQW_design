@@ -4,37 +4,22 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from BasicMQWDesign import design_default
 from calibration import calibration_summary, load_calibration, resolve_calibration
 from gain import calculate_gain_spectrum, gain_summary_dict, spectrum_to_rows
+from json_utils import json_safe
 from kp_solver import solve_kp_subbands, subband_summary
+from spectrum_io import write_rows_csv
 from visualization import (
     plot_band_diagram,
     plot_gain_spectrum,
     plot_subband_dispersion,
     plot_wavefunctions,
 )
-
-
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return [_json_safe(item) for item in value.tolist()]
-    if isinstance(value, np.floating):
-        return float(value)
-    if isinstance(value, np.integer):
-        return int(value)
-    return value
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -85,12 +70,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def write_csv(rows: list[dict[str, float]], path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-    return path
+    return write_rows_csv(rows, path)
 
 
 def write_plot(rows: list[dict[str, float]], path: Path) -> Path:
@@ -181,7 +161,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args.out_json.parent.mkdir(parents=True, exist_ok=True)
     args.out_json.write_text(
-        json.dumps(_json_safe(result), ensure_ascii=False, indent=2),
+        json.dumps(json_safe(result), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     write_csv(rows, args.out_csv)
