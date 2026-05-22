@@ -1,14 +1,16 @@
 # III-V MQW Design
 
 InP 基板上の InGaAsP / AlGaInAs 多重量子井戸（MQW）活性層を一次設計するための Python スクリプトです。
-O-band、特に 1.31 um 近傍の SOA 活性層を想定し、組成、ひずみ、量子閉じ込め準位、遷移波長、ひずみバランスを概算します。
-主な使用対象は InGaAsP MQW で、既定設定も InGaAsP になっています。
+O-band（1.31 µm 付近）および C-band（1.55 µm 付近）の SOA / LD 活性層を対象とし、組成、ひずみ、量子閉じ込め準位、遷移波長、ひずみバランスを概算します。
+既定設定は InGaAsP O-band ですが、組成パラメータを変更することで C-band やその他の波長帯にも対応できます。
 
-物理モデルの詳細は [docs/explanation.md](docs/explanation.md) にまとめています。
+- 物理モデルの詳細: [docs/explanation.md](docs/explanation.md)
+- 設計入力 JSON の仕様: [docs/design_input.md](docs/design_input.md)
+- 校正ガイドライン: [docs/calibration_guideline.md](docs/calibration_guideline.md)
 
 ## できること
 
-- InP 基板上で指定ひずみになる InGaAsP / AlGaInAs 組成の算出
+- InP 基板上で指定ひずみまたは指定モル分率になる InGaAsP / AlGaInAs 組成の算出
 - (001) 擬似格子整合層の面内ひずみ・面直ひずみの計算
 - 変形ポテンシャルによる HH / LH ひずみ込みバンドギャップの概算
 - 一次元有効質量有限井戸による e1 / hh1 / lh1 閉じ込め準位の計算
@@ -17,6 +19,8 @@ O-band、特に 1.31 um 近傍の SOA 活性層を想定し、組成、ひずみ
 - Lumerical MQW 計算へ渡すための `.lsf` 入力断片の生成
 - 簡易 k.p による TE/TM 材料ゲインスペクトルの計算
 - 校正 JSON を使ったゲイン計算、sweep、簡易 fit
+- 設計入力 JSON（`--design-input`）による MQW 構造のファイル管理
+- 計算済み設計 JSON（`--design-json`）の読み込み・再利用
 - バンド端、波動関数、サブバンド分散、ゲインスペクトルの PNG 可視化
 
 ## 主なスクリプト
@@ -31,6 +35,11 @@ O-band、特に 1.31 um 近傍の SOA 活性層を想定し、組成、ひずみ
 | `src/CompareSpectrum.py` | 計算スペクトルと外部基準スペクトルの peak / FWHM / RMSE 比較 |
 | `src/calibration.py` | 校正 JSON の読み込み、検証、CLI override 解決 |
 | `src/metrics.py` | peak、FWHM、補間 gain、RMSE などのスペクトル指標 |
+| `src/spectrum_io.py` | ゲインスペクトル CSV の読み書きと波長範囲フィルタ |
+| `src/spectrum_compare.py` | 予測スペクトルと参照スペクトルの比較ロジック |
+| `src/kp_solver.py` | 4×4 k.p サブバンド・波動関数ソルバー |
+| `src/gain.py` | TE/TM 材料ゲインスペクトル計算 |
+| `src/json_utils.py` | NumPy 配列等の JSON シリアライズヘルパー |
 | `src/visualization.py` | ゲイン、バンド図、波動関数、サブバンド分散、sweep summary の描画 |
 
 ## 注意
@@ -63,6 +72,8 @@ uv run ruff check src tests README.md docs
 ```
 
 ## 実行例
+
+### CLI 引数で直接指定する場合
 
 既定では InGaAsP 系の O-band 向け候補を計算します。
 
@@ -97,6 +108,69 @@ uv run python -B src/BasicMQWDesign.py \
   --wells 7 \
   --well-nm 6.5 \
   --barrier-nm 9.0
+```
+
+### 設計入力 JSON で指定する場合（推奨）
+
+論文やエピ成長レシピから MQW 構造を転記して JSON にまとめ、`--design-input` で渡せます。
+モル分率を直接指定するとひずみは自動算出されます。
+詳細は [docs/design_input.md](docs/design_input.md) を参照してください。
+
+InGaAsP O-band の例（`my_oband.json`）:
+
+```json
+{
+  "family": "ingaasp",
+  "wells": 5,
+  "well_nm": 7.0,
+  "barrier_nm": 10.0,
+  "well":    { "y_As": 0.567, "x_Ga": 0.1755 },
+  "barrier": { "y_As": 0.30,  "x_Ga": 0.1797 }
+}
+```
+
+InGaAsP C-band の例（`my_cband.json`）:
+
+```json
+{
+  "family": "ingaasp",
+  "wells": 5,
+  "well_nm": 6.0,
+  "barrier_nm": 10.0,
+  "well":    { "y_As": 0.81, "x_Ga": 0.22 },
+  "barrier": { "y_As": 0.50, "x_Ga": 0.25 }
+}
+```
+
+構造設計:
+
+```bash
+uv run python -B src/BasicMQWDesign.py --design-input my_cband.json
+```
+
+ゲイン計算:
+
+```bash
+uv run python -B src/MQWGainDesign.py --design-input my_cband.json
+```
+
+キャリア密度 sweep:
+
+```bash
+uv run python -B src/MQWGainSweep.py \
+  --design-input my_cband.json \
+  --sweep carrier-density \
+  --start 1e18 --stop 3e18 --points 5
+```
+
+### 計算済み設計 JSON を再利用する場合
+
+`BasicMQWDesign.py` が出力する JSON（計算済み DesignDict）を `--design-json` で読み込めます。
+構造計算をスキップして直接ゲイン計算へ進みたい場合に使います。
+
+```bash
+uv run python -B src/BasicMQWDesign.py --json out/design.json
+uv run python -B src/MQWGainDesign.py --design-json out/design.json
 ```
 
 ひずみや組成を指定する場合:

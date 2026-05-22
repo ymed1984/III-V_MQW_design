@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from BasicMQWDesign import design_default
+from BasicMQWDesign import design_default, load_design_input, load_design_json
 from calibration import calibration_summary, load_calibration, resolve_calibration
 from gain import calculate_gain_spectrum, gain_summary_dict, spectrum_to_rows
 from json_utils import json_safe
@@ -26,6 +26,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="Compact 4x4 k.p MQW material-gain screening helper"
     )
+    ap.add_argument("--design-json", type=Path, default=None,
+                    help="Load a pre-computed DesignDict JSON instead of design_default()")
+    ap.add_argument("--design-input", type=Path, default=None,
+                    help="JSON file specifying MQW compositions and geometry")
     ap.add_argument("--calibration", type=Path, default=None)
     ap.add_argument("--family", choices=["algainas", "ingaasp"], default="ingaasp")
     ap.add_argument("--wells", type=int, default=5)
@@ -102,21 +106,32 @@ def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
     calibration = load_calibration(args.calibration)
     resolved_calibration = resolve_calibration(args, calibration)
-    design = design_default(
-        family=args.family,
-        wells=args.wells,
-        well_nm=args.well_nm,
-        barrier_nm=args.barrier_nm,
-        q_c=resolved_calibration.q_c,
-        well_strain=args.well_strain,
-        barrier_strain=args.barrier_strain,
-        al_well=args.al_well,
-        al_barrier=args.al_barrier,
-        as_well=args.as_well,
-        as_barrier=args.as_barrier,
-        eg_offset_well_eV=resolved_calibration.Eg_offset_well_eV,
-        eg_offset_barrier_eV=resolved_calibration.Eg_offset_barrier_eV,
-    )
+    if args.design_json is not None:
+        design = load_design_json(args.design_json)
+    elif args.design_input is not None:
+        input_kwargs = load_design_input(args.design_input)
+        # Calibration overrides can still apply
+        if resolved_calibration.q_c is not None and "q_c" not in input_kwargs:
+            input_kwargs["q_c"] = resolved_calibration.q_c
+        input_kwargs.setdefault("eg_offset_well_eV", resolved_calibration.Eg_offset_well_eV)
+        input_kwargs.setdefault("eg_offset_barrier_eV", resolved_calibration.Eg_offset_barrier_eV)
+        design = design_default(**input_kwargs)
+    else:
+        design = design_default(
+            family=args.family,
+            wells=args.wells,
+            well_nm=args.well_nm,
+            barrier_nm=args.barrier_nm,
+            q_c=resolved_calibration.q_c,
+            well_strain=args.well_strain,
+            barrier_strain=args.barrier_strain,
+            al_well=args.al_well,
+            al_barrier=args.al_barrier,
+            as_well=args.as_well,
+            as_barrier=args.as_barrier,
+            eg_offset_well_eV=resolved_calibration.Eg_offset_well_eV,
+            eg_offset_barrier_eV=resolved_calibration.Eg_offset_barrier_eV,
+        )
     profile, subbands = solve_kp_subbands(
         design,
         dz_nm=args.dz_nm,

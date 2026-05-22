@@ -570,6 +570,10 @@ def _family_materials(
     al_barrier: Optional[float],
     as_well: Optional[float],
     as_barrier: Optional[float],
+    x_Ga_well: Optional[float] = None,
+    x_Ga_barrier: Optional[float] = None,
+    y_Ga_well: Optional[float] = None,
+    y_Ga_barrier: Optional[float] = None,
 ) -> tuple[Material, Material, float]:
     defaults = FAMILY_DEFAULTS[family]
     resolved_well_strain = defaults.well_strain if well_strain is None else well_strain
@@ -581,21 +585,25 @@ def _family_materials(
     if family == "algainas":
         well = make_algainas(
             x_Al=defaults.well_composition if al_well is None else al_well,
-            strain_target=resolved_well_strain,
+            strain_target=None if y_Ga_well is not None else resolved_well_strain,
+            y_Ga=y_Ga_well,
         )
         barrier = make_algainas(
             x_Al=defaults.barrier_composition if al_barrier is None else al_barrier,
-            strain_target=resolved_barrier_strain,
+            strain_target=None if y_Ga_barrier is not None else resolved_barrier_strain,
+            y_Ga=y_Ga_barrier,
         )
         return well, barrier, qc
 
     well = make_ingaasp(
         y_As=defaults.well_composition if as_well is None else as_well,
-        strain_target=resolved_well_strain,
+        strain_target=None if x_Ga_well is not None else resolved_well_strain,
+        x_Ga=x_Ga_well,
     )
     barrier = make_ingaasp(
         y_As=defaults.barrier_composition if as_barrier is None else as_barrier,
-        strain_target=resolved_barrier_strain,
+        strain_target=None if x_Ga_barrier is not None else resolved_barrier_strain,
+        x_Ga=x_Ga_barrier,
     )
     return well, barrier, qc
 
@@ -628,6 +636,10 @@ def design_default(
     as_barrier: Optional[float] = None,
     eg_offset_well_eV: float = 0.0,
     eg_offset_barrier_eV: float = 0.0,
+    x_Ga_well: Optional[float] = None,
+    x_Ga_barrier: Optional[float] = None,
+    y_Ga_well: Optional[float] = None,
+    y_Ga_barrier: Optional[float] = None,
 ) -> DesignDict:
     """Return a default O-band SOA MQW design candidate."""
     if family not in FAMILY_DEFAULTS:
@@ -642,6 +654,10 @@ def design_default(
         al_barrier=al_barrier,
         as_well=as_well,
         as_barrier=as_barrier,
+        x_Ga_well=x_Ga_well,
+        x_Ga_barrier=x_Ga_barrier,
+        y_Ga_well=y_Ga_well,
+        y_Ga_barrier=y_Ga_barrier,
     )
     well = _with_eg_offset(well, eg_offset_well_eV)
     barrier = _with_eg_offset(barrier, eg_offset_barrier_eV)
@@ -763,10 +779,104 @@ def write_design_json(design: DesignDict, path: str | Path) -> Path:
     return path
 
 
+_DESIGN_REQUIRED_KEYS = {"family", "wells", "well_nm", "barrier_nm", "qc", "well", "barrier"}
+
+
+def load_design_json(path: str | Path) -> DesignDict:
+    """Load a DesignDict previously written by *write_design_json*.
+
+    Validates that the required keys consumed by the downstream k.p solver
+    are present in the JSON file.
+    """
+    resolved = Path(path)
+    raw = json.loads(resolved.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("design JSON root must be a JSON object")
+    missing = _DESIGN_REQUIRED_KEYS - raw.keys()
+    if missing:
+        raise ValueError(f"design JSON missing required keys: {sorted(missing)}")
+    return raw
+
+
+# --- Design input (parameter file) -------------------------------------------
+
+_DESIGN_INPUT_TOPLEVEL = {
+    "family", "wells", "well_nm", "barrier_nm",
+    "qc", "eg_offset_well_eV", "eg_offset_barrier_eV",
+    "well", "barrier",
+}
+
+_INGAASP_COMP_KEYS = {"y_As", "x_Ga", "strain"}
+_ALGAINAS_COMP_KEYS = {"x_Al", "y_Ga", "strain"}
+
+
+def _parse_layer_block(
+    block: dict[str, Any], family: str, label: str,
+) -> dict[str, float | None]:
+    """Convert a well/barrier JSON block to design_default kwargs."""
+    if not isinstance(block, dict):
+        raise ValueError(f"design_input.{label} must be an object")
+    valid = _ALGAINAS_COMP_KEYS if family == "algainas" else _INGAASP_COMP_KEYS
+    unknown = set(block.keys()) - valid
+    if unknown:
+        raise ValueError(f"design_input.{label}: unknown keys {sorted(unknown)}")
+    return {k: block.get(k) for k in valid}
+
+
+def load_design_input(path: str | Path) -> dict[str, Any]:
+    """Load a design-input JSON and return kwargs for *design_default*.
+
+    The JSON schema uses structured well/barrier blocks with explicit
+    composition variables.  See docs/design_input.md for the full schema.
+    """
+    resolved = Path(path)
+    raw = json.loads(resolved.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("design_input JSON root must be a JSON object")
+    unknown_top = set(raw.keys()) - _DESIGN_INPUT_TOPLEVEL
+    if unknown_top:
+        raise ValueError(f"design_input: unknown top-level keys {sorted(unknown_top)}")
+
+    family: str = raw.get("family", "ingaasp")
+    kwargs: dict[str, Any] = {"family": family}
+    for key in ("wells", "well_nm", "barrier_nm", "qc",
+                "eg_offset_well_eV", "eg_offset_barrier_eV"):
+        if key in raw:
+            kwargs[key] = raw[key]
+
+    # Map q_c (design_default kwarg) from qc (JSON key)
+    if "qc" in kwargs:
+        kwargs["q_c"] = kwargs.pop("qc")
+
+    for label in ("well", "barrier"):
+        block = raw.get(label)
+        if block is None:
+            continue
+        parsed = _parse_layer_block(block, family, label)
+        if family == "algainas":
+            if parsed.get("x_Al") is not None:
+                kwargs[f"al_{label}"] = parsed["x_Al"]
+            if parsed.get("y_Ga") is not None:
+                kwargs[f"y_Ga_{label}"] = parsed["y_Ga"]
+            if parsed.get("strain") is not None:
+                kwargs[f"{label}_strain"] = parsed["strain"]
+        else:  # ingaasp
+            if parsed.get("y_As") is not None:
+                kwargs[f"as_{label}"] = parsed["y_As"]
+            if parsed.get("x_Ga") is not None:
+                kwargs[f"x_Ga_{label}"] = parsed["x_Ga"]
+            if parsed.get("strain") is not None:
+                kwargs[f"{label}_strain"] = parsed["strain"]
+
+    return kwargs
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         description="First-pass O-band InP MQW SOA design helper"
     )
+    ap.add_argument("--design-input", type=Path, default=None,
+                    help="JSON file specifying MQW compositions and geometry")
     ap.add_argument("--family", choices=["algainas", "ingaasp"], default="ingaasp")
     ap.add_argument("--wells", type=int, default=5)
     ap.add_argument("--well-nm", type=float, default=7.0)
@@ -853,21 +963,25 @@ def format_summary(design: DesignDict, json_path: Path, lsf_path: Path) -> str:
 
 def main(argv: Optional[list[str]] = None) -> None:
     args = build_arg_parser().parse_args(argv)
-    design = design_default(
-        args.family,
-        args.wells,
-        args.well_nm,
-        args.barrier_nm,
-        args.qc,
-        well_strain=args.well_strain,
-        barrier_strain=args.barrier_strain,
-        al_well=args.al_well,
-        al_barrier=args.al_barrier,
-        as_well=args.as_well,
-        as_barrier=args.as_barrier,
-        eg_offset_well_eV=args.eg_offset_well_eV,
-        eg_offset_barrier_eV=args.eg_offset_barrier_eV,
-    )
+    if args.design_input is not None:
+        input_kwargs = load_design_input(args.design_input)
+        design = design_default(**input_kwargs)
+    else:
+        design = design_default(
+            args.family,
+            args.wells,
+            args.well_nm,
+            args.barrier_nm,
+            args.qc,
+            well_strain=args.well_strain,
+            barrier_strain=args.barrier_strain,
+            al_well=args.al_well,
+            al_barrier=args.al_barrier,
+            as_well=args.as_well,
+            as_barrier=args.as_barrier,
+            eg_offset_well_eV=args.eg_offset_well_eV,
+            eg_offset_barrier_eV=args.eg_offset_barrier_eV,
+        )
     json_path = write_design_json(design, args.json)
     lsf_path = write_lumerical_lsf(design, args.lsf)
     print(format_summary(design, json_path, lsf_path))

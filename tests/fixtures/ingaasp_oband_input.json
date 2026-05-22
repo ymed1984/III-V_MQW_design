@@ -1,0 +1,14 @@
+{
+  "family": "ingaasp",
+  "wells": 5,
+  "well_nm": 7.0,
+  "barrier_nm": 10.0,
+  "well": {
+    "y_As": 0.567,
+    "x_Ga": 0.1755
+  },
+  "barrier": {
+    "y_As": 0.30,
+    "x_Ga": 0.1797
+  }
+}

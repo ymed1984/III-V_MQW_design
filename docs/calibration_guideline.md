@@ -116,6 +116,16 @@ g_modal = Gamma * g_material - alpha_i
 - 線幅
 - TE/TM の定義
 
+論文やエピ成長レシピから構造を再現する場合は、`--design-input` JSON でモル分率を直接指定するのが確実である。
+詳細は [design_input.md](design_input.md) を参照。
+
+```bash
+# 例: Suzuki JJAP 2018 Table I の C-band MQW を再現
+uv run python -B src/MQWGainDesign.py \
+  --design-input tests/fixtures/suzuki2018_cband_input.json \
+  --energy-min-eV 0.70 --energy-max-eV 0.90
+```
+
 Lumerical MQW と比較する場合は、同じ構造を `BasicMQWDesign.py` の `.lsf` 出力と照合する。
 
 ### Step 2: e1-hh1 遷移波長を合わせる
@@ -393,6 +403,7 @@ gain_scale_cm
 ```
 
 校正 JSON では次のように指定する。
+O-band 用と C-band 用のサンプルが `calibrations/` に用意されている。
 
 ```json
 {

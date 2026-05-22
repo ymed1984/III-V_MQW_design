@@ -11,7 +11,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 
-from BasicMQWDesign import design_default
+from BasicMQWDesign import DesignDict, design_default, load_design_input, load_design_json
 from calibration import (
     ResolvedCalibration,
     calibration_summary,
@@ -71,6 +71,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--log", action="store_true", help="Use logarithmic sweep spacing")
 
+    ap.add_argument("--design-json", type=Path, default=None,
+                    help="Load a pre-computed DesignDict JSON instead of design_default()")
+    ap.add_argument("--design-input", type=Path, default=None,
+                    help="JSON file specifying MQW compositions and geometry")
     ap.add_argument("--calibration", type=Path, default=None)
     ap.add_argument("--family", choices=["algainas", "ingaasp"], default="ingaasp")
     ap.add_argument("--wells", type=int, default=5)
@@ -188,13 +192,20 @@ def _gain_kwargs(
     return kwargs
 
 
+_DESIGN_COMPATIBLE_SWEEPS = {"carrier-density", "broadening-eV"}
+
+
 def run_one(
     args: argparse.Namespace,
     resolved: ResolvedCalibration,
     sweep: SweepName,
     value: float,
+    base_design: DesignDict | None = None,
 ) -> tuple[dict[str, float], list[dict[str, float]]]:
-    design = design_default(**_design_kwargs(args, resolved, sweep, value))
+    if base_design is not None:
+        design = base_design
+    else:
+        design = design_default(**_design_kwargs(args, resolved, sweep, value))
     profile, subbands = solve_kp_subbands(
         design,
         dz_nm=args.dz_nm,
@@ -403,10 +414,37 @@ def main(argv: list[str] | None = None) -> None:
     calibration = load_calibration(args.calibration)
     resolved_calibration = resolve_calibration(args, calibration)
     values = _parse_values(args)
+
+    loaded_design: DesignDict | None = None
+    if args.design_json is not None:
+        if args.sweep not in _DESIGN_COMPATIBLE_SWEEPS:
+            raise SystemExit(
+                f"--design-json is only compatible with sweeps: "
+                f"{sorted(_DESIGN_COMPATIBLE_SWEEPS)}. "
+                f"Got --sweep {args.sweep}."
+            )
+        loaded_design = load_design_json(args.design_json)
+    elif args.design_input is not None:
+        if args.sweep not in _DESIGN_COMPATIBLE_SWEEPS:
+            raise SystemExit(
+                f"--design-input is only compatible with sweeps: "
+                f"{sorted(_DESIGN_COMPATIBLE_SWEEPS)}. "
+                f"Got --sweep {args.sweep}."
+            )
+        input_kwargs = load_design_input(args.design_input)
+        if resolved_calibration.q_c is not None and "q_c" not in input_kwargs:
+            input_kwargs["q_c"] = resolved_calibration.q_c
+        input_kwargs.setdefault("eg_offset_well_eV", resolved_calibration.Eg_offset_well_eV)
+        input_kwargs.setdefault("eg_offset_barrier_eV", resolved_calibration.Eg_offset_barrier_eV)
+        loaded_design = design_default(**input_kwargs)
+
     rows = []
     spectra_rows = []
     for value in values:
-        summary, spectrum_rows = run_one(args, resolved_calibration, args.sweep, value)
+        summary, spectrum_rows = run_one(
+            args, resolved_calibration, args.sweep, value,
+            base_design=loaded_design,
+        )
         rows.append(summary)
         spectra_rows.extend(spectrum_rows)
     comparison_rows = None
@@ -428,21 +466,24 @@ def main(argv: list[str] | None = None) -> None:
             comparison_rows,
             key=lambda row: row["score_rmse_gain_cm"],
         )
-    base_design = design_default(
-        family=args.family,
-        wells=args.wells,
-        well_nm=args.well_nm,
-        barrier_nm=args.barrier_nm,
-        q_c=resolved_calibration.q_c,
-        well_strain=args.well_strain,
-        barrier_strain=args.barrier_strain,
-        al_well=args.al_well,
-        al_barrier=args.al_barrier,
-        as_well=args.as_well,
-        as_barrier=args.as_barrier,
-        eg_offset_well_eV=resolved_calibration.Eg_offset_well_eV,
-        eg_offset_barrier_eV=resolved_calibration.Eg_offset_barrier_eV,
-    )
+    if loaded_design is not None:
+        base_design = loaded_design
+    else:
+        base_design = design_default(
+            family=args.family,
+            wells=args.wells,
+            well_nm=args.well_nm,
+            barrier_nm=args.barrier_nm,
+            q_c=resolved_calibration.q_c,
+            well_strain=args.well_strain,
+            barrier_strain=args.barrier_strain,
+            al_well=args.al_well,
+            al_barrier=args.al_barrier,
+            as_well=args.as_well,
+            as_barrier=args.as_barrier,
+            eg_offset_well_eV=resolved_calibration.Eg_offset_well_eV,
+            eg_offset_barrier_eV=resolved_calibration.Eg_offset_barrier_eV,
+        )
     result = {
         "model_note": (
             "Peak sweep from compact screening model. Absolute gain requires "

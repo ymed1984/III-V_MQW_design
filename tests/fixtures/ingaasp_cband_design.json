@@ -1,0 +1,107 @@
+{
+  "family": "ingaasp",
+  "wells": 5,
+  "well_nm": 7.0,
+  "barrier_nm": 10.0,
+  "qc": 0.4,
+  "Eg_offset_well_eV": 0.0,
+  "Eg_offset_barrier_eV": 0.0,
+  "well": {
+    "name": "In0.7148Ga0.2852As0.8000P0.2000",
+    "family": "InGaAsP",
+    "x_Ga": 0.2851629991882233,
+    "y_As": 0.8,
+    "x_Al": null,
+    "y_Ga": null,
+    "z_In": null,
+    "a_A": 5.904124748490945,
+    "Eg_eV": 0.7514633328226825,
+    "me": 0.04800111735957352,
+    "gamma1": 13.986998622622693,
+    "gamma2": 5.587534042362488,
+    "gamma3": 6.301144686209874,
+    "ac_eV": -5.866264254285528,
+    "av_eV": 1.0192367237175017,
+    "b_eV": -1.8199228198863513,
+    "C11_GPa": 97.95282523239916,
+    "C12_GPa": 50.351491067677664,
+    "eps_static": 14.026860961688495,
+    "source_note": "InGaAsP interpolated; Eg uses common InP-lattice-matched formula plus off-lattice correction"
+  },
+  "barrier": {
+    "name": "In0.6326Ga0.3674As0.7000P0.3000",
+    "family": "InGaAsP",
+    "x_Ga": 0.36742121463821525,
+    "y_As": 0.7,
+    "x_Al": null,
+    "y_Ga": null,
+    "z_In": null,
+    "a_A": 5.851146560319043,
+    "Eg_eV": 0.9554352110309245,
+    "me": 0.058563098011433945,
+    "gamma1": 12.061789894464098,
+    "gamma2": 4.6513138999364,
+    "gamma3": 5.363695879220128,
+    "ac_eV": -6.136035238676931,
+    "av_eV": 1.0424001768700912,
+    "b_eV": -1.8104163336102037,
+    "C11_GPa": 102.9576508951001,
+    "C12_GPa": 52.07892515170779,
+    "eps_static": 13.62199467679676,
+    "source_note": "InGaAsP interpolated; Eg uses common InP-lattice-matched formula plus off-lattice correction"
+  },
+  "transition": {
+    "well_strain": {
+      "eps_parallel": -0.005999999999999983,
+      "eps_zz": 0.00616845804476375,
+      "hydrostatic_strain": -0.005831541955236216,
+      "dEc_eV": 0.03420936611936855,
+      "dEv_hh_eV": 0.016201932761819055,
+      "dEv_lh_eV": -0.02808937619517128,
+      "Eg_hh_eV": 0.769470766180232,
+      "Eg_lh_eV": 0.8137620751372223,
+      "hh_lh_split_eV": 0.044291308956990336
+    },
+    "barrier_strain": {
+      "eps_parallel": 0.002999999999999962,
+      "eps_zz": -0.003034971643133263,
+      "hydrostatic_strain": 0.002965028356866661,
+      "dEc_eV": -0.018193518481410192,
+      "dEv_hh_eV": -0.007835065151980156,
+      "dEv_lh_eV": 0.014016557319225444,
+      "Eg_hh_eV": 0.9450767577014946,
+      "Eg_lh_eV": 0.9232251352302889,
+      "hh_lh_split_eV": -0.0218516224712056
+    },
+    "dEg_hh_eV": 0.17560599152126255,
+    "dEc_eV": 0.07024239660850502,
+    "dEv_hh_eV": 0.10536359491275753,
+    "dEv_lh_eV": 0.06567783605583996,
+    "electron_levels_eV": [
+      0.03539256964653292
+    ],
+    "hh_levels_eV": [
+      0.012760297695476678,
+      0.049323241814973225,
+      0.09940412511731651
+    ],
+    "lh_levels_eV": [
+      0.03763628268448066
+    ],
+    "e1_eV": 0.03539256964653292,
+    "hh1_eV": 0.012760297695476678,
+    "lh1_eV": 0.03763628268448066,
+    "E_transition_hh_eV": 0.8176236335222417,
+    "lambda_transition_hh_um": 1.516396949851955,
+    "E_transition_lh_eV": 0.886790927468236,
+    "lambda_transition_lh_um": 1.398122088979547
+  },
+  "strain_balance": {
+    "total_nm": 95.0,
+    "average_strain": -0.00031578947368422826,
+    "absolute_strain_thickness_nm": 0.3899999999999971,
+    "signed_strain_thickness_nm": -0.030000000000001685
+  },
+  "critical_thickness_well_nm_est": 12.738499215499093,
+  "critical_thickness_barrier_nm_est": 32.42960410969035
+}

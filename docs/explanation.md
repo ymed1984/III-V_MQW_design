@@ -7,7 +7,10 @@
 実行方法やコマンドライン引数の説明は README を参照せよ。
 ここでは計算内容、仮定、近似、出力値の物理的意味に関して説明する。
 
-本プログラムは、O-band、特に 1.31 um 近傍の InP 系 SOA 活性層を想定した簡易設計ツールである。
+本プログラムは、O-band（1.31 µm 付近）および C-band（1.55 µm 付近）を含む InP 系 SOA / LD 活性層を対象とした簡易設計ツールである。
+既定設定は O-band 向けだが、組成パラメータ（モル分率またはひずみターゲット）を変更することで C-band やその他の波長帯の MQW 設計にも対応する。
+組成は JSON ファイル（`--design-input`）でモル分率を直接指定でき、その場合ひずみは自動算出される。
+詳細は [design_input.md](design_input.md) を参照。
 厳密な 6x6 / 8x8 k.p 計算、自己無撞着 Poisson-Schrödinger 計算、利得スペクトル計算そのものを置き換えるものではない。
 目的は、次のような量を短時間で見積もり、Lumerical MQW ソルバなどへ渡す初期構造を作ることである。
 
@@ -45,6 +48,13 @@
 | `spectrum_io.py` | スペクトル CSV schema の読み込み、必須列検証、波長範囲フィルタ |
 | `spectrum_compare.py` | 計算スペクトルと基準スペクトルの指標差分、RMSE、sweep 比較用の平坦化 |
 | `json_utils.py` | numpy scalar / ndarray を含む出力を JSON へ保存するための変換 |
+
+また、MQW 縦構造の入出力に関わる以下の仕組みがある。
+
+| 機能 | 説明 |
+| --- | --- |
+| `--design-input` | 井戸・障壁のモル分率・層厚を記述した JSON を読み込んで `design_default()` を呼ぶ。詳細は [design_input.md](design_input.md) 参照 |
+| `--design-json` | `BasicMQWDesign.py` の計算済み出力 JSON（DesignDict）を直接読み込み、構造計算をスキップしてゲイン計算へ進む |
 
 ## 0.2 k.p ゲイン計算の位置づけ
 
